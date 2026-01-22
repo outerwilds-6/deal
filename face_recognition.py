@@ -1,7 +1,18 @@
 import cv2
+import sqlite3
 import json
 import numpy as np
 from insightface.app import FaceAnalysis
+
+# 连接到数据库（如果数据库文件不存在，会自动创建）
+conn = sqlite3.connect("faces.db")
+cursor = conn.cursor()
+
+# 创建用户表
+cursor.execute('''CREATE TABLE IF NOT EXISTS users (
+                    user_id TEXT PRIMARY KEY,
+                    embedding BLOB)''')
+conn.commit()
 
 #识别特定人脸
 app = FaceAnalysis(name='buffalo_l')
@@ -49,17 +60,12 @@ while True:
     key = cv2.waitKey(1) & 0xFF
     if key == ord('r') and len(faces) > 0 and registered_embedding is None:
         registered_embedding = faces[0].embedding
-        #将特征向量转换成列表（因为 JSON 不支持直接存储 numpy 数组）
-        embedding_list = registered_embedding.tolist()
-        # 数据结构
-        user_data = {
-            "user_id": user_id,
-            "embedding": embedding_list
-        }
-        # 将数据存储到 JSON 文件
-        with open("user_data.json", "a") as f:
-            json.dump(user_data, f)
-            f.write("\n")  # 每个用户的数据保存为单独的 JSON 对象
+        # 将 embedding 转换为二进制格式 转换为BLOB类型
+        embedding_bytes = embedding.tobytes()
+        # 插入用户数据
+        cursor.execute("INSERT OR REPLACE INTO users (user_id, embedding) VALUES (?, ?)", 
+                    (user_id, embedding_bytes))
+        conn.commit()
         print("人脸已注册")
 
     if key == ord('q'):
