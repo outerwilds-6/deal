@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 脚本控制台</title>
+    <style>
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; display: flex; height: 100vh; background-color: #f4f4f9; }
+        
+        /* 侧边栏 */
+        .sidebar { width: 220px; background-color: #202b38; color: #ecf0f1; display: flex; flex-direction: column; }
+        .sidebar-header { padding: 20px; font-size: 1.2rem; font-weight: bold; border-bottom: 1px solid #34495e; text-align: center; }
+        
+        .nav-item { padding: 15px 20px; cursor: pointer; transition: 0.2s; border-left: 4px solid transparent; }
+        .nav-item:hover { background-color: #2c3e50; }
+        .nav-item.active { background-color: #34495e; border-left-color: #3498db; }
+
+        /* 主内容区 */
+        .main-content { flex: 1; padding: 40px; overflow-y: auto; display: flex; flex-direction: column; }
+        
+        /* 卡片容器 */
+        .section-container { display: none; } /* 默认隐藏所有部分 */
+        .section-container.active { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 25px; animation: fadeIn 0.4s; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* 卡片样式 */
+        .card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: space-between; }
+        .card h3 { margin-top: 0; color: #2c3e50; }
+        .card p { color: #7f8c8d; font-size: 0.95rem; line-height: 1.5; }
+        
+        /* 按钮 */
+        .btn { border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 500; transition: 0.2s; width: 100%; margin-top: 15px; }
+        .btn-primary { background-color: #3498db; color: white; }
+        .btn-primary:hover { background-color: #2980b9; }
+        .btn-danger { background-color: #e74c3c; color: white; }
+        .btn-danger:hover { background-color: #c0392b; }
+        .btn:disabled { background-color: #bdc3c7; cursor: not-allowed; }
+
+        /* 控制台输出 */
+        #console-box { margin-top: auto; background: #1e1e1e; border-radius: 8px; padding: 15px; color: #0f0; font-family: monospace; min-height: 120px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; margin-top: 30px; box-shadow: inset 0 0 10px rgba(0,0,0,0.5); }
+        .log-entry { margin-bottom: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }
+    </style>
+</head>
+<body>
+
+    <!-- 左侧导航 -->
+    <div class="sidebar">
+        <div class="sidebar-header">Script Runner</div>
+        <!-- onclick 切换显示的区域 -->
+        <div class="nav-item active" onclick="switchTab('tab-ai', this)">🤖 人工智能</div>
+        <div class="nav-item" onclick="switchTab('tab-data', this)">📊 数据处理</div>
+        <div class="nav-item" onclick="switchTab('tab-utils', this)">🛠️ 系统工具</div>
+    </div>
+
+    <!-- 右侧内容 -->
+    <div class="main-content">
+        
+        <!-- 1. 人工智能分类 -->
+        <div id="tab-ai" class="section-container active">
+            
+            <!-- 人脸识别卡片 -->
+            <div class="card" style="border-top: 4px solid #e74c3c;">
+                <h3>人脸识别录入</h3>
+                <p>启动摄像头捕捉画面。请在弹出的窗口中按下键盘上的 <b>'r'</b> 键来记录当前人脸数据。</p>
+                <button class="btn btn-danger" onclick="runScript('face_recognition.py', this, '请看摄像头窗口，按 R 键录入...')">启动识别程序</button>
+            </div>
+
+            <!-- 新增：人脸比对检测 -->
+            <div class="card" style="border-left: 5px solid #2ecc71;">
+                <h3>人脸身份核验</h3>
+                <p>读取数据库 (faces.db)，比对当前摄像头画面中的人脸是否已注册。</p>
+                <button class="btn" style="background-color: #2ecc71; color: white;" 
+                        onclick="runScript('use_data_to_detect.py', this, '正在比对人脸特征...')">
+                    开始核验
+                </button>
+            </div>
+
+            <!-- 其他 AI 示例 -->
+            <div class="card">
+                <h3>图像分类 (示例)</h3>
+                <p>调用 PyTorch 模型对指定文件夹的图片进行分类。</p>
+                <button class="btn btn-primary" onclick="runScript('test.py', this)">运行分类</button>
+            </div>
+        </div>
+
+        <!-- 2. 数据处理分类 -->
+        <div id="tab-data" class="section-container">
+            <div class="card">
+                <h3>Excel 数据清洗</h3>
+                <p>自动处理报表中的空缺值并格式化日期。</p>
+                <button class="btn btn-primary" onclick="runScript('test.py', this)">开始处理</button>
+            </div>
+        </div>
+
+        <!-- 3. 系统工具分类 -->
+        <div id="tab-utils" class="section-container">
+            <div class="card">
+                <h3>服务器状态检查</h3>
+                <p>Ping 测试内部服务器连通性。</p>
+                <button class="btn btn-primary" onclick="runScript('test.py', this)">开始检测</button>
+            </div>
+        </div>
+
+        <!-- 底部控制台 -->
+        <div id="console-box">等待指令...</div>
+    </div>
+
+    <script>
+        // 切换栏目逻辑
+        function switchTab(tabId, navElement) {
+            // 1. 隐藏所有内容区域
+            document.querySelectorAll('.section-container').forEach(el => el.classList.remove('active'));
+            // 2. 显示选中的区域
+            document.getElementById(tabId).classList.add('active');
+            
+            // 3. 更新左侧高亮
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            navElement.classList.add('active');
+        }
+
+        // 获取 CSRF Token
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        // 运行脚本核心逻辑
+        async function runScript(scriptName, btnElement, customMessage=null) {
+            const consoleBox = document.getElementById('console-box');
+            
+            // UI 反馈
+            const originalText = btnElement.innerText;
+            btnElement.disabled = true;
+            btnElement.innerText = "运行中...";
+            
+            // 显示提示信息
+            const startMsg = customMessage ? customMessage : `正在启动 ${scriptName}...`;
+            consoleBox.innerHTML = `<div class="log-entry" style="color:yellow">>>> ${startMsg}</div>`;
+
+            try {
+                const response = await fetch('/api/run/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: JSON.stringify({ script_name: scriptName })
+                });
+
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    // 将换行符转换为 HTML 换行
+                    consoleBox.innerHTML += `<div class="log-entry">${data.output}</div>`;
+                    consoleBox.innerHTML += `<div class="log-entry" style="color:#0f0">>>> 执行完毕</div>`;
+                } else {
+                    consoleBox.innerHTML += `<div class="log-entry" style="color:red">>>> 错误: ${data.message}</div>`;
+                }
+
+            } catch (error) {
+                consoleBox.innerHTML += `<div class="log-entry" style="color:red">>>> 网络错误: ${error}</div>`;
+            } finally {
+                btnElement.disabled = false;
+                btnElement.innerText = originalText;
+                // 滚动到底部
+                consoleBox.scrollTop = consoleBox.scrollHeight;
+            }
+        }
+    </script>
+</body>
+</html>
