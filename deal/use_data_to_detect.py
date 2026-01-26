@@ -1,107 +1,127 @@
-# deal/use_data_to_detect.py
 import cv2
 import sqlite3
 import numpy as np
-import sys
-import config
-from camera_utils import SmartCamera
 from insightface.app import FaceAnalysis
+from datetime import datetime
+import pytz
 
-# 防止乱码
-sys.stdout.reconfigure(encoding='utf-8')
+#识别特定人脸
+app = FaceAnalysis(name='buffalo_l')
+app.prepare(ctx_id=0, det_size=(640, 640))
+#内置摄像头
+cap = cv2.VideoCapture(0)
 
-def load_users():
-    """从数据库加载所有用户特征"""
-    if not os.path.exists(config.DB_PATH):
-        print("ERROR: 数据库文件不存在，请先运行录入脚本！", flush=True)
-        return []
-    
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT user_id, embedding FROM users")
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
+#打开sql
+conn = sqlite3.connect("faces.db")
+cursor = conn.cursor()
 
-import os # 上面漏了 import os，补在这里
+#创建访问日志表（如果不存在）
+log_conn = sqlite3.connect("access_log.db")
+log_cursor = log_conn.cursor()
+log_cursor.execute('''
+    CREATE TABLE IF NOT EXISTS access_log (
+        log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT,
+        access_time TIMESTAMP,
+        similarity REAL
+    )
+''')
+log_conn.commit()
+#变量用于通行许可变化时记录日志 True为通行 False为禁止通行
+last_result = False
+current_result = False
+#设置时间阈值（30秒），即同一个人在多少时间内多次识别到进入只写入一次日志
+TIME_THRESHOLD = 30    #单位为秒
 
-def main():
-    print("DEBUG: === 启动人脸核验程序 ===", flush=True)
+#取出所有人的信息
+cursor.execute("SELECT user_id, embedding FROM users")
+rows = cursor.fetchall()
+#记录目前最高相似的脸
+best_user_id = None
+best_similarity = -1
+registered_embedding = None
 
-    # 1. 加载用户数据
-    users = load_users()
-    print(f"DEBUG: 已加载 {len(users)} 个用户数据", flush=True)
-    if len(users) == 0:
-        print("WARNING: 数据库为空，请先注册。", flush=True)
+#开始检测
 
-    # 2. 初始化组件
-    try:
-        camera = SmartCamera()
-        print("DEBUG: 正在加载 AI 模型...", flush=True)
-        app = FaceAnalysis(name=config.MODEL_NAME)
-        app.prepare(ctx_id=0, det_size=config.DET_SIZE)
-        print("DEBUG: 模型加载完毕", flush=True)
-    except Exception as e:
-        print(f"ERROR: 初始化失败 - {e}", flush=True)
-        return
+#读取画面及人脸
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+    faces = app.get(frame)
 
-    # 3. 主循环
-    while True:
-        ret, frame = camera.read()
-        if not ret:
-            break
-        
-        # 每一帧重置状态
-        best_user_id = "Unknown"
-        best_similarity = -1.0
-        
-        # AI 推理
-        faces = app.get(frame)
-
-        if len(faces) > 0:
-            face = faces[0]
-            current_embedding = face.embedding
-            
-            # 遍历数据库匹配
-            for user_id_db, embedding_bytes in users:
-                registered_embedding = np.frombuffer(embedding_bytes, dtype=np.float32)
-                
-                # 计算余弦相似度
-                similarity = np.dot(current_embedding, registered_embedding) / (
-                    np.linalg.norm(current_embedding) *
-                    np.linalg.norm(registered_embedding)
-                )
-                
-                if similarity > best_similarity:
-                    best_similarity = similarity
-                    best_user_id = user_id_db
-            
-            # 显示结果
-            if best_similarity > config.SIMILARITY_THRESHOLD:
-                color = (0, 255, 0) # Green
-                status_text = "Access Granted"
+    #如果有人脸
+    if len(faces) > 0:
+        face = faces[0]  # 只取第一张脸（按照人脸出现的顺序）
+        current_embedding = face.embedding #目前的人脸特征向量
+        for user_id, embedding_bytes in rows:
+            # 1.还原数据库中的特征向量
+            registered_embedding = np.frombuffer(
+                embedding_bytes, dtype=np.float32
+            )
+            # 2. 计算余弦相似度
+            similarity = np.dot(current_embedding, registered_embedding) / (
+                np.linalg.norm(current_embedding) *
+                np.linalg.norm(registered_embedding)
+            )
+            # 3. 记录最相似的人
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_user_id = user_id
+        #输出识别结果
+        # TODO : 把结果放在头上
+        if similarity > 0.5:
+            text_1 = "Access Granted"
+            text_2 = "You Are";  text_3 = best_user_id
+            color = (0, 255, 0)
+            cv2.putText(frame, f"{text_1} ({similarity:.2f})",
+                        (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+            cv2.putText(frame, f"{text_2} ",
+                        (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+            cv2.putText(frame, f"{text_3} ",
+                        (150, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+            current_result = True
+            #查询数据库中最后一条记录，检查是否已经记录过该结果
+            log_cursor.execute("SELECT user_id, access_time FROM access_log ORDER BY log_id DESC LIMIT 1")
+            last_log = log_cursor.fetchone()
+            #获取当前时间
+            current_time = datetime.now(pytz.timezone("Asia/Shanghai"))
+            formatted_time = current_time.strftime('%Y-%m-%d %H:%M:%S')
+            if last_log is None:
+                # 数据库里还没有任何访问记录
+                last_user_id = None
+                time_diff = 100000 #比门槛时间大就行 按道理来说应该不用设置
             else:
-                color = (0, 0, 255) # Red
-                status_text = "Access Denied"
-            
-            # 绘制文字
-            cv2.putText(frame, f"{status_text} ({best_similarity:.2f})",
-                        (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-            
-            if best_similarity > config.SIMILARITY_THRESHOLD:
-                cv2.putText(frame, f"ID: {best_user_id}",
-                            (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+                last_user_id, last_access_time_str = last_log # 获取数据库中的最后一条记录
+                #比较这次与上次进入的时间，以便判断是否需要记录日志
+                last_access_time_naive = datetime.strptime(last_access_time_str, "%Y-%m-%d %H:%M:%S")
+                # 将无时区时间转换为带时区的时间
+                last_access_time = pytz.timezone("Asia/Shanghai").localize(last_access_time_naive)
+                time_diff = (current_time - last_access_time).total_seconds()
+        else:
+            text = "Access Denied"
+            color = (0, 0, 255)
+            cv2.putText(frame, f"{text} ({similarity:.2f})",
+                        (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+            current_result = False
+        # 提交到数据库
+        conn.commit()
+    else:
+        current_result = False
+    #判断是否需要写入日志
+    if current_result > last_result and ( last_user_id != best_user_id or
+                                          (last_user_id == best_user_id and time_diff > TIME_THRESHOLD)):
+        log_cursor.execute(
+            "INSERT INTO access_log (user_id, access_time, similarity) VALUES (?, ?, ?)",
+            (best_user_id,formatted_time,best_similarity)
+        )
+        log_conn.commit()
+    last_result = current_result
 
-        # 退出控制
-        if (cv2.waitKey(1) & 0xFF) == ord('q'):
-            print("ACTION: 退出核验", flush=True)
-            break
-        
-        title = "Detect Mode (Image)" if config.USE_STATIC_IMAGE else "Detect Mode (Camera)"
-        cv2.imshow(title, frame)
-
-    camera.release()
-    cv2.destroyAllWindows()
-
-if __name__ == "__main__":
-    main()
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord('q'):
+        break
+    cv2.imshow("Face Recognition", frame)
+#释放
+cap.release()
+cv2.destroyAllWindows()

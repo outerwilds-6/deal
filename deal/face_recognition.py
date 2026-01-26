@@ -1,95 +1,76 @@
-# deal/face_recognition.py
 import cv2
 import sqlite3
-import sys
-import config
-from camera_utils import SmartCamera
+import numpy as np
 from insightface.app import FaceAnalysis
 
-# 防止乱码
-sys.stdout.reconfigure(encoding='utf-8')
+# 连接到数据库（如果数据库文件不存在，会自动创建）
+conn = sqlite3.connect("faces.db")
+cursor = conn.cursor()
 
-def init_db():
-    """初始化数据库连接"""
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS users (
-                        user_id TEXT PRIMARY KEY,
-                        embedding BLOB)''')
-    conn.commit()
-    return conn, cursor
+# 创建用户表
+cursor.execute('''CREATE TABLE IF NOT EXISTS users (
+                    user_id TEXT PRIMARY KEY,
+                    embedding BLOB)''')
+conn.commit()
 
-def main():
-    print("DEBUG: === 启动人脸录入程序 ===", flush=True)
+#识别特定人脸
+app = FaceAnalysis(name='buffalo_l')
+app.prepare(ctx_id=0, det_size=(640, 640))
+#内置摄像头
+cap = cv2.VideoCapture(0)
 
-    # 1. 初始化组件
-    try:
-        # 摄像头
-        camera = SmartCamera()
-        # 数据库
-        conn, cursor = init_db()
-        # AI 模型
-        print("DEBUG: 正在加载 AI 模型...", flush=True)
-        app = FaceAnalysis(name=config.MODEL_NAME)
-        app.prepare(ctx_id=0, det_size=config.DET_SIZE)
-        print("DEBUG: 模型加载完毕", flush=True)
-    except Exception as e:
-        print(f"ERROR: 初始化失败 - {e}", flush=True)
-        return
+registered_embedding = None
 
-    print("DEBUG: 等待用户操作...", flush=True)
-    registered_embedding = None
+#开始检测
 
-    # 2. 主循环
-    while True:
-        ret, frame = camera.read()
-        if not ret:
-            print("WARNING: 无法读取画面", flush=True)
-            break
+#读取画面及人脸
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+    faces = app.get(frame)
 
-        # AI 推理
-        faces = app.get(frame)
+    #如果有人脸
+    if len(faces) > 0:
+        face = faces[0]  # 只取第一张脸（按照人脸出现的顺序）
 
-        if len(faces) > 0:
-            # 取第一张脸
-            face = faces[0]
-            
-            # 绘制提示语
-            if registered_embedding is None:
-                cv2.putText(frame, "Press R to Register", (20, 40),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        # TODO: 输入框输入用户名
+        user_id = "XinYi Yu"
+        embedding = face.embedding
+        if registered_embedding is None:
+            #记录人脸
+            cv2.putText(frame, "Press R to Register", (20, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        #神秘的人脸识别
+        if registered_embedding is not None:
+            similarity = np.dot(embedding, registered_embedding) / (
+                np.linalg.norm(embedding) * np.linalg.norm(registered_embedding)
+            )
+            #输出识别结果
+            if similarity > 0.5:
+                text = "Access Granted"
+                color = (0, 255, 0)
             else:
-                cv2.putText(frame, "Registered Done!", (20, 40),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                
-            # 键盘监听
-            key = cv2.waitKey(1) & 0xFF
-            
-            # 按 R 注册
-            if key == ord('r') and registered_embedding is None:
-                registered_embedding = face.embedding
-                embedding_bytes = registered_embedding.tobytes()
-                
-                try:
-                    cursor.execute("INSERT OR REPLACE INTO users (user_id, embedding) VALUES (?, ?)", 
-                                (config.DEFAULT_REGISTER_ID, embedding_bytes))
-                    conn.commit()
-                    print(f"ACTION: >>> 用户 [{config.DEFAULT_REGISTER_ID}] 人脸已注册成功！", flush=True)
-                except Exception as e:
-                    print(f"ERROR: 数据库写入失败 - {e}", flush=True)
+                text = "Access Denied"
+                color = (0, 0, 255)
+            #把结果放在头上
+            cv2.putText(frame, f"{text} ({similarity:.2f})",
+                        (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+    #TODO:按键注册、按键关闭
+    #按下r来注册
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord('r') and len(faces) > 0 and registered_embedding is None:
+        registered_embedding = faces[0].embedding
+        # 将 embedding 转换为二进制格式 转换为BLOB类型
+        embedding_bytes = registered_embedding.tobytes()
+        # 插入用户数据
+        cursor.execute("INSERT OR REPLACE INTO users (user_id, embedding) VALUES (?, ?)", 
+                    (user_id, embedding_bytes))
+        conn.commit()
+        print("人脸已注册")
 
-        # 按 Q 退出
-        if (cv2.waitKey(1) & 0xFF) == ord('q'):
-            print("ACTION: 用户退出", flush=True)
-            break
-
-        title = "Register Mode (Image)" if config.USE_STATIC_IMAGE else "Register Mode (Camera)"
-        cv2.imshow(title, frame)
-
-    # 清理
-    camera.release()
-    cv2.destroyAllWindows()
-    conn.close()
-
-if __name__ == "__main__":
-    main()
+    if key == ord('q'):
+        break
+    cv2.imshow("Face Recognition", frame)
+cap.release()
+cv2.destroyAllWindows()
