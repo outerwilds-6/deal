@@ -4,6 +4,7 @@ import numpy as np
 from insightface.app import FaceAnalysis
 from datetime import datetime
 import pytz
+import os
 
 #识别特定人脸
 app = FaceAnalysis(name='buffalo_l')
@@ -40,6 +41,10 @@ rows = cursor.fetchall()
 best_user_id = None
 best_similarity = -1
 registered_embedding = None
+
+#记录进入者的人脸信息
+os.makedirs("entrance_data/images", exist_ok=True)
+os.makedirs("entrance_data/labels", exist_ok=True)
 
 #开始检测
 
@@ -111,11 +116,24 @@ while True:
     #判断是否需要写入日志
     if current_result > last_result and ( last_user_id != best_user_id or
                                           (last_user_id == best_user_id and time_diff > TIME_THRESHOLD)):
+        #记录数据至sql数据库
         log_cursor.execute(
             "INSERT INTO access_log (user_id, access_time, similarity) VALUES (?, ?, ?)",
             (best_user_id,formatted_time,best_similarity)
         )
         log_conn.commit()
+        #把时间改成可以文件保存的格式
+        formatted_time = current_time.strftime('%Y-%m-%d_%H-%M-%S')
+        #记录进入时的图片,以及识别到的人脸部分的数据
+        image_path = f"entrance_data/images/{best_user_id}_{formatted_time}.jpg"
+        label_path = f"entrance_data/labels/{best_user_id}_{formatted_time}.txt"
+        
+        cv2.imwrite(image_path, frame)
+
+        with open(label_path, "w") as f:
+            x1, y1, x2, y2 = face.bbox
+            f.write(f"左上角坐标：({x1:.2f},{y1:.2f}) 右下角坐标：({x2:.2f},{y2:.2f})\n")
+
     last_result = current_result
 
     key = cv2.waitKey(1) & 0xFF

@@ -35,7 +35,7 @@ while True:
         face = faces[0]  # 只取第一张脸（按照人脸出现的顺序）
 
         # TODO: 输入框输入用户名
-        user_id = "XinYi Yu"
+        user_id = "XinYi_Yu"
         embedding = face.embedding
         if registered_embedding is None:
             #记录人脸
