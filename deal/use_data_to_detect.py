@@ -5,49 +5,19 @@ from insightface.app import FaceAnalysis
 from datetime import datetime
 import pytz
 import os
-import sys
-import time
 
-# 引入工具
-from camera_utils import SmartCamera
-import config
-
-# 防止乱码
-sys.stdout.reconfigure(encoding='utf-8')
-
-# === 路径配置 ===
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "faces.db")
-LOG_DB_PATH = os.path.join(BASE_DIR, "access_log.db")
-
-# 数据保存目录 (确保生成在 deal 文件夹下)
-ENTRANCE_DIR = os.path.join(BASE_DIR, "entrance_data")
-IMG_SAVE_DIR = os.path.join(ENTRANCE_DIR, "images")
-LABEL_SAVE_DIR = os.path.join(ENTRANCE_DIR, "labels")
-
-os.makedirs(IMG_SAVE_DIR, exist_ok=True)
-os.makedirs(LABEL_SAVE_DIR, exist_ok=True)
-
-# 识别特定人脸
-print("DEBUG: 加载模型...", flush=True)
-app = FaceAnalysis(name=config.MODEL_NAME, providers=config.PROVIDERS)
+#识别特定人脸
+app = FaceAnalysis(name='buffalo_l')
 app.prepare(ctx_id=0, det_size=(640, 640))
+#内置摄像头
+cap = cv2.VideoCapture(0)
 
-# === 使用 SmartCamera ===
-try:
-    camera = SmartCamera()
-except Exception as e:
-    print(f"ERROR: 摄像头启动失败: {e}", flush=True)
-    sys.exit(1)
-
-# 打开sql
-print(f"DEBUG: 连接主数据库: {DB_PATH}", flush=True)
-conn = sqlite3.connect(DB_PATH)
+#打开sql
+conn = sqlite3.connect("faces.db")
 cursor = conn.cursor()
 
-# 创建访问日志表
-print(f"DEBUG: 连接日志数据库: {LOG_DB_PATH}", flush=True)
-log_conn = sqlite3.connect(LOG_DB_PATH)
+#创建访问日志表（如果不存在）
+log_conn = sqlite3.connect("access_log.db")
 log_cursor = log_conn.cursor()
 log_cursor.execute('''
     CREATE TABLE IF NOT EXISTS access_log (
@@ -58,160 +28,118 @@ log_cursor.execute('''
     )
 ''')
 log_conn.commit()
-
-# 变量初始化
+#变量用于通行许可变化时记录日志 True为通行 False为禁止通行
 last_result = False
 current_result = False
-TIME_THRESHOLD = 30  # 单位为秒
-last_inference_time = 0      # 【新增】上次检测时间
-cached_faces = []            # 【新增】缓存的结果
+#设置时间阈值（30秒），即同一个人在多少时间内多次识别到进入只写入一次日志
+TIME_THRESHOLD = 30    #单位为秒
 
-# 取出所有人的信息
-try:
-    cursor.execute("SELECT user_id, embedding FROM users")
-    rows = cursor.fetchall()
-    print(f"DEBUG: 加载了 {len(rows)} 个用户数据", flush=True)
-except Exception as e:
-    print(f"ERROR: 读取用户数据失败: {e}", flush=True)
-    rows = []
+#取出所有人的信息
+cursor.execute("SELECT user_id, embedding FROM users")
+rows = cursor.fetchall()
+#记录目前最高相似的脸
+best_user_id = None
+best_similarity = -1
+registered_embedding = None
 
-# 开始检测
-print("DEBUG: 开始检测循环...", flush=True)
+#记录进入者的人脸信息
+os.makedirs("entrance_data/images", exist_ok=True)
+os.makedirs("entrance_data/labels", exist_ok=True)
 
+#开始检测
+
+#读取画面及人脸
 while True:
-    ret, frame = camera.read()
+    ret, frame = cap.read()
     if not ret:
         break
-
-    # 【新增】性能优化逻辑 ---------------------------------------
-    current_time_clock = time.time()
-    
-    # 只有当时间间隔超过设定值（例如0.5秒）时，才调用笨重的 app.get()
-    if current_time_clock - last_inference_time > config.INFERENCE_INTERVAL:
-        cached_faces = app.get(frame)
-        last_inference_time = current_time_clock
-    
-    # 这里的 faces 使用缓存的数据
-    faces = cached_faces 
-    # -----------------------------------------------------------
-
-    # 每一帧重置最佳匹配 (注意：这里要小心，如果 faces 是缓存的，结果也会延续上一帧的)
-    best_user_id = "Unknown"
-    best_similarity = -1
-    time_diff = 999999 
-    last_user_id = None
-    
-    # 每一帧重置最佳匹配
-    best_user_id = "Unknown"
-    best_similarity = -1
-    time_diff = 999999 # 初始化时间差
-    last_user_id = None
-    
     faces = app.get(frame)
 
-    # 如果有人脸
+    #如果有人脸
     if len(faces) > 0:
-        face = faces[0]  # 只取第一张脸
-        current_embedding = face.embedding 
-        
-        # === 核心识别逻辑 ===
-        for user_id_db, embedding_bytes in rows:
-            registered_embedding = np.frombuffer(embedding_bytes, dtype=np.float32)
+        face = faces[0]  # 只取第一张脸（按照人脸出现的顺序）
+        current_embedding = face.embedding #目前的人脸特征向量
+        for user_id, embedding_bytes in rows:
+            # 1.还原数据库中的特征向量
+            registered_embedding = np.frombuffer(
+                embedding_bytes, dtype=np.float32
+            )
+            # 2. 计算余弦相似度
             similarity = np.dot(current_embedding, registered_embedding) / (
                 np.linalg.norm(current_embedding) *
                 np.linalg.norm(registered_embedding)
             )
-            # 记录最相似的人
+            # 3. 记录最相似的人
             if similarity > best_similarity:
                 best_similarity = similarity
-                best_user_id = user_id_db
-        
-        # === 判断逻辑 (使用 best_similarity) ===
-        if best_similarity > 0.5:
-            # 允许通行
+                best_user_id = user_id
+        #输出识别结果
+        # TODO : 把结果放在头上
+        if similarity > 0.5:
             text_1 = "Access Granted"
+            text_2 = "You Are";  text_3 = best_user_id
             color = (0, 255, 0)
-            cv2.putText(frame, f"{text_1} ({best_similarity:.2f})", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-            cv2.putText(frame, "You Are", (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-            cv2.putText(frame, f"{best_user_id}", (150, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-            
+            cv2.putText(frame, f"{text_1} ({similarity:.2f})",
+                        (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+            cv2.putText(frame, f"{text_2} ",
+                        (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+            cv2.putText(frame, f"{text_3} ",
+                        (150, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
             current_result = True
-            
-            # === 日志检查逻辑 ===
+            #查询数据库中最后一条记录，检查是否已经记录过该结果
             log_cursor.execute("SELECT user_id, access_time FROM access_log ORDER BY log_id DESC LIMIT 1")
             last_log = log_cursor.fetchone()
-            
-            # 获取当前时间
+            #获取当前时间
             current_time = datetime.now(pytz.timezone("Asia/Shanghai"))
-            formatted_time_log = current_time.strftime('%Y-%m-%d %H:%M:%S') # 数据库用
-            
+            formatted_time = current_time.strftime('%Y-%m-%d %H:%M:%S')
             if last_log is None:
+                # 数据库里还没有任何访问记录
                 last_user_id = None
-                time_diff = 100000 
+                time_diff = 100000 #比门槛时间大就行 按道理来说应该不用设置
             else:
-                last_user_id, last_access_time_str = last_log
-                try:
-                    last_access_time_naive = datetime.strptime(last_access_time_str, "%Y-%m-%d %H:%M:%S")
-                    last_access_time = pytz.timezone("Asia/Shanghai").localize(last_access_time_naive)
-                    time_diff = (current_time - last_access_time).total_seconds()
-                except Exception:
-                    time_diff = 100000 # 如果时间解析出错，默认允许
+                last_user_id, last_access_time_str = last_log # 获取数据库中的最后一条记录
+                #比较这次与上次进入的时间，以便判断是否需要记录日志
+                last_access_time_naive = datetime.strptime(last_access_time_str, "%Y-%m-%d %H:%M:%S")
+                # 将无时区时间转换为带时区的时间
+                last_access_time = pytz.timezone("Asia/Shanghai").localize(last_access_time_naive)
+                time_diff = (current_time - last_access_time).total_seconds()
         else:
-            # 拒绝通行
             text = "Access Denied"
             color = (0, 0, 255)
-            cv2.putText(frame, f"{text} ({best_similarity:.2f})", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+            cv2.putText(frame, f"{text} ({similarity:.2f})",
+                        (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
             current_result = False
+        # 提交到数据库
+        conn.commit()
     else:
         current_result = False
-
-    # === 日志写入与图片保存逻辑 ===
-    # 必须满足：当前结果为True，且（状态从False变True OR 换人了 OR 同一个人超过了时间阈值）
-    # 注意：这里稍微优化了同事的逻辑：如果一直是 True，也应该根据时间阈值记录，而不是只看 > last_result
-    should_log = False
-    if current_result:
-        if not last_result: # 刚变绿
-            should_log = True
-        elif last_user_id != best_user_id: # 换人了
-            should_log = True
-        elif last_user_id == best_user_id and time_diff > TIME_THRESHOLD: # 超时了
-            should_log = True
-
-    if should_log:
-        print(f"ACTION: 记录日志 - 用户: {best_user_id}", flush=True)
-        # 写入 SQL
+    #判断是否需要写入日志
+    if current_result > last_result and ( last_user_id != best_user_id or
+                                          (last_user_id == best_user_id and time_diff > TIME_THRESHOLD)):
+        #记录数据至sql数据库
         log_cursor.execute(
             "INSERT INTO access_log (user_id, access_time, similarity) VALUES (?, ?, ?)",
-            (best_user_id, formatted_time_log, best_similarity)
+            (best_user_id,formatted_time,best_similarity)
         )
         log_conn.commit()
-
-        # 文件保存命名
-        file_time_str = current_time.strftime('%Y-%m-%d_%H-%M-%S')
-        image_path = os.path.join(IMG_SAVE_DIR, f"{best_user_id}_{file_time_str}.jpg")
-        label_path = os.path.join(LABEL_SAVE_DIR, f"{best_user_id}_{file_time_str}.txt")
+        #把时间改成可以文件保存的格式
+        formatted_time = current_time.strftime('%Y-%m-%d_%H-%M-%S')
+        #记录进入时的图片,以及识别到的人脸部分的数据
+        image_path = f"entrance_data/images/{best_user_id}_{formatted_time}.jpg"
+        label_path = f"entrance_data/labels/{best_user_id}_{formatted_time}.txt"
         
-        # 保存图片
         cv2.imwrite(image_path, frame)
 
-        # 保存标签
-        if len(faces) > 0:
-            with open(label_path, "w", encoding='utf-8') as f:
-                x1, y1, x2, y2 = faces[0].bbox
-                f.write(f"左上角坐标：({x1:.2f},{y1:.2f}) 右下角坐标：({x2:.2f},{y2:.2f})\n")
+        with open(label_path, "w") as f:
+            x1, y1, x2, y2 = face.bbox
+            f.write(f"左上角坐标：({x1:.2f},{y1:.2f}) 右下角坐标：({x2:.2f},{y2:.2f})\n")
 
     last_result = current_result
 
     key = cv2.waitKey(1) & 0xFF
     if key == ord('q'):
-        print("ACTION: 退出", flush=True)
         break
-    
-    title = "Detect (Mock)" if config.USE_STATIC_IMAGE else "Detect (Real)"
-    cv2.imshow(title, frame)
-
-# 释放
-camera.release()
+    cv2.imshow("Face Recognition", frame)
+#释放
+cap.release()
 cv2.destroyAllWindows()
-conn.close()
-log_conn.close()
