@@ -1,76 +1,163 @@
 import cv2
 import sqlite3
 import numpy as np
+import os
+import sys
+import time
 from insightface.app import FaceAnalysis
+from camera_utils import SmartCamera
+import config
 
-# 连接到数据库（如果数据库文件不存在，会自动创建）
-conn = sqlite3.connect("faces.db")
+# 防止输出乱码
+sys.stdout.reconfigure(encoding='utf-8')
+
+# === 1. 接收网页传来的用户名 ===
+if len(sys.argv) > 1:
+    TARGET_USER_ID = sys.argv[1]
+else:
+    TARGET_USER_ID = "Unknown_User"
+
+print(f"DEBUG: 启动鼠标交互注册，目标用户: {TARGET_USER_ID}", flush=True)
+
+# === 2. 初始化环境 ===
+# 确保使用绝对路径，防止 Web 调用时路径错误
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "faces.db")
+
+conn = sqlite3.connect(DB_PATH)
 cursor = conn.cursor()
-
-# 创建用户表
-cursor.execute('''CREATE TABLE IF NOT EXISTS users (
-                    user_id TEXT PRIMARY KEY,
-                    embedding BLOB)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id TEXT PRIMARY KEY, embedding BLOB)''')
 conn.commit()
 
-#识别特定人脸
-app = FaceAnalysis(name='buffalo_l')
-app.prepare(ctx_id=0, det_size=(640, 640))
-#内置摄像头
-cap = cv2.VideoCapture(0)
+print("DEBUG: 加载 AI 模型...", flush=True)
+app = FaceAnalysis(name=config.MODEL_NAME, providers=config.PROVIDERS)
+# 只有在 config.py 里配置了 providers 才有 GPU，否则默认 CPU
+providers = getattr(config, 'PROVIDERS', ['CPUExecutionProvider'])
+app.prepare(ctx_id=0, det_size=config.DET_SIZE)
 
-registered_embedding = None
+try:
+    camera = SmartCamera()
+except Exception as e:
+    print(f"ERROR: 摄像头初始化失败: {e}", flush=True)
+    sys.exit(1)
 
-#开始检测
+# === 3. 鼠标回调与 UI 逻辑 ===
+mouse_pos = (0, 0)
+click_event = None
+current_state = 'waiting' # waiting | registered
 
-#读取画面及人脸
+def on_mouse(event, x, y, flags, param):
+    global mouse_pos, click_event
+    if event == cv2.EVENT_MOUSEMOVE:
+        mouse_pos = (x, y)
+    elif event == cv2.EVENT_LBUTTONDOWN:
+        click_event = 'click'
+
+window_name = f"Register: {TARGET_USER_ID}"
+cv2.namedWindow(window_name)
+cv2.setMouseCallback(window_name, on_mouse)
+
+# 按钮布局参数
+BTN_H = 50
+MARGIN = 20
+
+def draw_buttons(img):
+    h, w = img.shape[:2]
+    
+    # 定义两个按钮的区域
+    # 左边：Register (绿色)
+    btn_reg_rect = (MARGIN, h - BTN_H - MARGIN, w // 2 - MARGIN - 10, h - MARGIN)
+    # 右边：Exit (红色)
+    btn_exit_rect = (w // 2 + 10, h - BTN_H - MARGIN, w - MARGIN, h - MARGIN)
+
+    mx, my = mouse_pos
+    
+    # --- 绘制注册按钮 ---
+    x1, y1, x2, y2 = btn_reg_rect
+    hover_reg = (x1 <= mx <= x2 and y1 <= my <= y2)
+    
+    if current_state == 'registered':
+        color = (100, 100, 100) # 灰色 (已完成)
+        text = "Done / Updated"
+    else:
+        color = (0, 200, 0) if not hover_reg else (50, 255, 50) # 亮绿/暗绿
+        text = "CLICK TO REGISTER"
+    
+    cv2.rectangle(img, (x1, y1), (x2, y2), color, -1)
+    # 文字居中稍微简略点处理
+    cv2.putText(img, text, (x1 + 20, y1 + 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
+
+    # --- 绘制退出按钮 ---
+    x1, y1, x2, y2 = btn_exit_rect
+    hover_exit = (x1 <= mx <= x2 and y1 <= my <= y2)
+    color = (0, 0, 180) if not hover_exit else (50, 50, 255) # 红
+    
+    cv2.rectangle(img, (x1, y1), (x2, y2), color, -1)
+    cv2.putText(img, "EXIT", (x1 + 60, y1 + 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
+
+    return hover_reg, hover_exit
+
+# === 4. 主循环 ===
+last_inference_time = 0
+current_faces = []
+
+print("DEBUG: 窗口已启动", flush=True)
+
 while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
-    faces = app.get(frame)
+    ret, frame = camera.read()
+    if not ret: break
 
-    #如果有人脸
-    if len(faces) > 0:
-        face = faces[0]  # 只取第一张脸（按照人脸出现的顺序）
+    # 统一大小，方便画按钮
+    frame = cv2.resize(frame, (640, 480))
 
-        # TODO: 输入框输入用户名
-        user_id = "XinYi_Yu"
-        embedding = face.embedding
-        if registered_embedding is None:
-            #记录人脸
-            cv2.putText(frame, "Press R to Register", (20, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        #神秘的人脸识别
-        if registered_embedding is not None:
-            similarity = np.dot(embedding, registered_embedding) / (
-                np.linalg.norm(embedding) * np.linalg.norm(registered_embedding)
-            )
-            #输出识别结果
-            if similarity > 0.5:
-                text = "Access Granted"
-                color = (0, 255, 0)
+    # 抽帧检测 (防止卡顿)
+    now = time.time()
+    # 如果你 config.py 里没有 INFERENCE_INTERVAL，这里默认 0.1
+    interval = getattr(config, 'INFERENCE_INTERVAL', 0.1) 
+    
+    if now - last_inference_time > interval:
+        current_faces = app.get(frame)
+        last_inference_time = now
+
+    # 绘制人脸框
+    for face in current_faces:
+        box = face.bbox.astype(int)
+        color = (0, 255, 0) if current_state == 'registered' else (0, 255, 255)
+        cv2.rectangle(frame, (box[0], box[1]), (box[2], box[3]), color, 2)
+
+    # 绘制 UI
+    hover_reg, hover_exit = draw_buttons(frame)
+
+    # 处理点击事件
+    if click_event == 'click':
+        if hover_exit:
+            print("ACTION: 用户点击退出", flush=True)
+            break
+        
+        if hover_reg:
+            if len(current_faces) > 0:
+                # 执行录入
+                face = current_faces[0]
+                embedding = face.embedding.tobytes()
+                cursor.execute("INSERT OR REPLACE INTO users (user_id, embedding) VALUES (?, ?)", 
+                            (TARGET_USER_ID, embedding))
+                conn.commit()
+                current_state = 'registered'
+                print(f"SUCCESS: 用户 {TARGET_USER_ID} 已录入数据库", flush=True)
             else:
-                text = "Access Denied"
-                color = (0, 0, 255)
-            #把结果放在头上
-            cv2.putText(frame, f"{text} ({similarity:.2f})",
-                        (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-    #TODO:按键注册、按键关闭
-    #按下r来注册
-    key = cv2.waitKey(1) & 0xFF
-    if key == ord('r') and len(faces) > 0 and registered_embedding is None:
-        registered_embedding = faces[0].embedding
-        # 将 embedding 转换为二进制格式 转换为BLOB类型
-        embedding_bytes = registered_embedding.tobytes()
-        # 插入用户数据
-        cursor.execute("INSERT OR REPLACE INTO users (user_id, embedding) VALUES (?, ?)", 
-                    (user_id, embedding_bytes))
-        conn.commit()
-        print("人脸已注册")
+                print("WARNING: 没有检测到人脸，无法录入", flush=True)
+    
+    click_event = None # 重置点击
 
-    if key == ord('q'):
+    # 状态文字
+    cv2.putText(frame, f"User: {TARGET_USER_ID}", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+    cv2.imshow(window_name, frame)
+
+    # 按 Q 也能退
+    if cv2.waitKey(1) & 0xFF == ord('q'):
         break
-    cv2.imshow("Face Recognition", frame)
-cap.release()
+
+camera.release()
 cv2.destroyAllWindows()
+conn.close()

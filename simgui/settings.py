@@ -121,3 +121,8 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# 配置媒体文件（用于显示日志里的抓拍图片）
+# 将 Media 根目录指向你的 entrance_data 文件夹
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'deal' / 'entrance_data'
