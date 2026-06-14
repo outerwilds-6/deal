@@ -11,24 +11,18 @@
     /* ============ DOM 引用 ============ */
     const $idlePanel   = $('#state-idle');
     const $insidePanel = $('#state-inside');
-    const $pickupModal = $('#pickup-modal');
     const $notification = $('#notification');
     const $btnEntry    = $('#btn-entry');
     const $btnExit     = $('#btn-exit');
     const $btnPickup   = $('#btn-pickup');
-    const $btnClosePickup = $('#btn-close-pickup');
     const $userName    = $('#user-name');
     const $userPhone   = $('#user-phone');
     const $parcelsList = $('#parcels-list');
     const $noParcels   = $('#no-parcels');
-    const $pickupTitle = $('#pickup-title');
-    const $pickupMessage = $('#pickup-message');
-    const $pickupLoading = $('#pickup-loading');
 
     /* ============ 状态 ============ */
     let currentUser = null;        // { id, name, phone, is_active, created_at }
     let activeParcels = [];       // [{ id, tracking_no, company, cabinet_number, status, ... }]
-    let pickupInProgress = false;
     let notifTimer = null;
     const NOTIF_DURATION = 3500;
 
@@ -182,79 +176,104 @@
     }
 
     /* ============ 取件确认 ============ */
-    function openPickupModal() {
-        $pickupModal.style.display = 'flex';
-        $pickupTitle.textContent = '正在扫描...';
-        $pickupMessage.textContent = '请将包裹二维码对准摄像头';
-        $pickupLoading.style.display = 'block';
-        $btnClosePickup.style.display = 'none';
-        pickupInProgress = false;
-        doPickup();
+    var pickupCancelFlag = false;
+    var pickupRetryTimer = null;
+    var MAX_PICKUP_RETRIES = 30;
+
+    function cancelPickup() {
+        pickupCancelFlag = true;
+        if (pickupRetryTimer) clearTimeout(pickupRetryTimer);
+        pickupRetryTimer = null;
+        $btnPickup.textContent = '扫码取件';
+        $btnPickup.classList.remove('cancelling');
     }
 
-    function closePickupModal() {
-        $pickupModal.style.display = 'none';
+    function startPickup() {
+        pickupCancelFlag = false;
+        $btnPickup.textContent = '取消取件';
+        $btnPickup.classList.add('cancelling');
+        showNotification('正在人脸验证，请正对摄像头...', 'warning');
+        doPickup('face', 0);
     }
 
-    async function doPickup() {
-        if (pickupInProgress) return;
+    async function doPickup(phase, retryCount) {
+        if (pickupCancelFlag) return;
         if (!currentUser || !currentUser.id) {
-            showPickupResult('error', '用户信息丢失，请刷新页面');
+            showNotification('用户信息丢失，请刷新页面', 'error');
+            cancelPickup();
             return;
         }
 
-        pickupInProgress = true;
         try {
             var resp = await fetch('/api/client/confirm_pickup?user_id=' + currentUser.id, { method: 'POST' });
             var json = await resp.json();
 
             if (!resp.ok) {
-                showPickupResult('error', json.detail || json.message || '取件失败');
+                showNotification(json.detail || json.message || '取件失败', 'error');
+                cancelPickup();
                 return;
             }
 
             if (json.code !== 200 || !json.data) {
-                showPickupResult('error', json.message || '未检测到包裹二维码');
+                var msg = json.message || '';
+
+                if (msg.indexOf('未检测到人脸') !== -1) {
+                    if (retryCount < MAX_PICKUP_RETRIES) {
+                        showNotification('未检测到人脸，请正对摄像头... (' + (retryCount + 1) + '/' + MAX_PICKUP_RETRIES + ')', 'warning');
+                        pickupRetryTimer = setTimeout(function() {
+                            doPickup('face', retryCount + 1);
+                        }, 1500);
+                        return;
+                    }
+                    showNotification('身份验证超时，请正对摄像头后重试', 'error');
+                    cancelPickup();
+                    return;
+                }
+
+                if (msg.indexOf('人脸验证失败') !== -1 || msg.indexOf('本人操作') !== -1) {
+                    showNotification(msg, 'error');
+                    cancelPickup();
+                    return;
+                }
+
+                if (msg.indexOf('未检测到包裹') !== -1 || msg.indexOf('二维码') !== -1) {
+                    if (retryCount < MAX_PICKUP_RETRIES) {
+                        if (retryCount === 0) {
+                            showNotification('人脸验证通过，即将扫描二维码', 'warning');
+                        } else {
+                            showNotification('请将包裹二维码对准摄像头... (' + (retryCount + 1) + '/' + MAX_PICKUP_RETRIES + ')', 'warning');
+                        }
+                        pickupRetryTimer = setTimeout(function() {
+                            doPickup('scan', retryCount + 1);
+                        }, 1500);
+                        return;
+                    }
+                    showNotification('扫描超时，请确认二维码在画面中后重试', 'error');
+                    cancelPickup();
+                    return;
+                }
+
+                showNotification(msg, 'error');
+                cancelPickup();
                 return;
             }
 
             var parcel = json.data;
             markParcelAsPicked(parcel.tracking_no);
-            showPickupResult('success', '取件成功：' + parcel.tracking_no + '\n柜号：' + parcel.cabinet_number);
+            showNotification('取件成功：' + parcel.tracking_no + '  柜号：' + parcel.cabinet_number, 'success');
+            cancelPickup();
 
             activeParcels = activeParcels.filter(function(p) {
                 return p.tracking_no !== parcel.tracking_no;
             });
+
+            if (activeParcels.length === 0) {
+                renderParcels([]);
+            }
         } catch (e) {
-            showPickupResult('error', '网络异常：' + e.message);
-        } finally {
-            pickupInProgress = false;
+            showNotification('网络异常：' + e.message, 'error');
+            cancelPickup();
         }
-    }
-
-    function showPickupResult(type, msg) {
-        $pickupLoading.style.display = 'none';
-        $btnClosePickup.style.display = 'inline-block';
-        if (type === 'success') {
-            $pickupTitle.textContent = '取件成功';
-            $pickupMessage.innerHTML = msg.replace(/\n/g, '<br>');
-            $pickupMessage.style.color = '#16a34a';
-        } else {
-            $pickupTitle.textContent = '扫描失败';
-            $pickupMessage.textContent = msg;
-            $pickupMessage.style.color = '#dc2626';
-            $btnClosePickup.textContent = '重试';
-        }
-    }
-
-    function retryPickup() {
-        $pickupTitle.textContent = '正在扫描...';
-        $pickupMessage.textContent = '请将包裹二维码对准摄像头';
-        $pickupMessage.style.color = '#94a3b8';
-        $pickupLoading.style.display = 'block';
-        $btnClosePickup.style.display = 'none';
-        $btnClosePickup.textContent = '关闭';
-        doPickup();
     }
 
     /* ============ WebSocket ============ */
@@ -318,20 +337,12 @@
     /* ============ 事件绑定 ============ */
     $btnEntry.addEventListener('click', handleEntry);
     $btnExit.addEventListener('click', handleExit);
-    $btnPickup.addEventListener('click', openPickupModal);
 
-    $btnClosePickup.addEventListener('click', function() {
-        if ($btnClosePickup.textContent === '重试') {
-            retryPickup();
+    $btnPickup.addEventListener('click', function() {
+        if ($btnPickup.classList.contains('cancelling')) {
+            cancelPickup();
         } else {
-            closePickupModal();
-        }
-    });
-
-    /* 点击蒙层关闭取件弹窗 */
-    $pickupModal.addEventListener('click', function(e) {
-        if (e.target === $pickupModal) {
-            closePickupModal();
+            startPickup();
         }
     });
 

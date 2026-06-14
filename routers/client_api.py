@@ -17,7 +17,9 @@ pickup_handler = PickupHandler()
 
 def build_parcel_out(p: dict) -> ParcelOut:
     """内部辅助函数：将数据库包裹字典映射为 ParcelOut 响应模型"""
-    extra = json.loads(p.get("extra_info") or "{}")
+    extra = p.get("extra_info") or {}
+    if isinstance(extra, str):
+        extra = json.loads(extra)
     return ParcelOut(
         id=p["parcel_id"],
         tracking_no=p["tracking_no"],
@@ -38,7 +40,8 @@ async def client_entry():
     if not success or frame is None:
         return APIResponse(code=500, message="摄像头抓图失败")
 
-    embedding = app_state.face_recognizer.extract_feature(frame)
+    embedding = await asyncio.get_event_loop().run_in_executor(
+        None, app_state.face_recognizer.extract_feature, frame)
     if embedding is None:
         return APIResponse(code=400, message="未检测到人脸，请正对摄像头")
 
@@ -92,7 +95,8 @@ async def client_exit():
     if not success or frame is None:
         return APIResponse(code=500, message="摄像头抓图失败")
 
-    embedding = app_state.face_recognizer.extract_feature(frame)
+    embedding = await asyncio.get_event_loop().run_in_executor(
+        None, app_state.face_recognizer.extract_feature, frame)
     if embedding is None:
         return APIResponse(code=400, message="未检测到人脸")
 
@@ -151,13 +155,19 @@ async def confirm_pickup(user_id: int):
     return APIResponse(message=msg, data=parcel_info)
 
 
-async def generate_mjpeg_stream(camera_instance):
-    while True:
-        success, frame = camera_instance.get_frame()
-        if success:
-            _, buffer = cv2.imencode('.jpg', frame)
-            yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-        await asyncio.sleep(0.03)
+async def generate_mjpeg_stream(camera_instance, fps: int = 30):
+    interval = 1.0 / fps
+    try:
+        while True:
+            t0 = asyncio.get_event_loop().time()
+            success, frame = camera_instance.get_frame()
+            if success:
+                _, buffer = cv2.imencode('.jpg', frame)
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+            elapsed = asyncio.get_event_loop().time() - t0
+            await asyncio.sleep(max(0, interval - elapsed))
+    except asyncio.CancelledError:
+        pass
 
 
 @router.get("/video_feed")

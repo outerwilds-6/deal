@@ -230,6 +230,27 @@
     });
 
     // ============ 包裹看板 ============
+    $('#btn-add-parcel').addEventListener('click', () => {
+        document.getElementById('form-parcel').reset();
+        $('#parcel-id').value = '';
+        $('#parcel-status').value = '1';
+        $('#modal-parcel-title').textContent = '手动入库';
+        openModal('modal-parcel');
+    });
+
+    $('#btn-random-fill').addEventListener('click', () => {
+        var companies = ['顺丰速运', '京东物流', '圆通速递', '中通快递', '韵达快递'];
+        var names = ['张三', '李四', '王五', '赵六', '虞大'];
+        var phones = ['13800138001', '13800138002', '13800138003', '13900139001', '13700137001'];
+        var rand = Math.floor(Math.random() * 5);
+        var ts = 'DEMO' + Date.now().toString(36).toUpperCase().slice(-8);
+        $('#parcel-tracking').value = ts;
+        $('#parcel-phone').value = phones[rand];
+        $('#parcel-company').value = companies[rand];
+        $('#parcel-name').value = names[rand];
+        $('#parcel-cabinet').value = '';
+    });
+
     async function loadParcels() {
         const tbody = $('#parcels-tbody');
         showLoading(tbody);
@@ -242,14 +263,14 @@
             if (!resp.ok) throw new Error(json.detail || '加载包裹失败');
             renderParcels(json.data);
         } catch (e) {
-            tbody.innerHTML = `<tr class="table-placeholder"><td colspan="6">${e.message}</td></tr>`;
+            tbody.innerHTML = `<tr class="table-placeholder"><td colspan="8">${e.message}</td></tr>`;
         }
     }
 
     function renderParcels(parcels) {
         const tbody = $('#parcels-tbody');
         if (!parcels || parcels.length === 0) {
-            tbody.innerHTML = '<tr class="table-placeholder"><td colspan="7">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr class="table-placeholder"><td colspan="8">暂无数据</td></tr>';
             updatePaginationState('parcels', 0);
             return;
         }
@@ -263,10 +284,96 @@
                 <td>${p.cabinet_number || '-'}</td>
                 <td>${statusMap[p.status] || '-'}</td>
                 <td>${p.in_time || '-'}</td>
+                <td>
+                    <button class="btn btn-sm btn-primary btn-edit-parcel" data-id="${p.id}">编辑</button>
+                    <button class="btn btn-sm btn-danger btn-delete-parcel" data-id="${p.id}">删除</button>
+                </td>
             </tr>
         `).join('');
+        tbody.querySelectorAll('.btn-edit-parcel').forEach(btn => btn.addEventListener('click', () => editParcel(btn.dataset.id)));
+        tbody.querySelectorAll('.btn-delete-parcel').forEach(btn => btn.addEventListener('click', () => deleteParcel(btn.dataset.id)));
         updatePaginationState('parcels', parcels.length);
     }
+
+    async function editParcel(id) {
+        try {
+            const resp = await fetch(`/api/backend/parcels/${id}`);
+            const json = await resp.json();
+            if (!resp.ok) throw new Error(json.detail || '获取包裹信息失败');
+            const p = json.data;
+            $('#parcel-id').value = p.id;
+            $('#parcel-tracking').value = p.tracking_no || '';
+            $('#parcel-phone').value = p.receiver_phone || '';
+            $('#parcel-company').value = p.company || '';
+            $('#parcel-name').value = p.receiver_name || '';
+            $('#parcel-cabinet').value = p.cabinet_number || '';
+            $('#parcel-status').value = p.status;
+            $('#modal-parcel-title').textContent = '编辑包裹';
+            openModal('modal-parcel');
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+    }
+
+    function deleteParcel(id) {
+        openModal('modal-confirm');
+        $('#confirm-message').textContent = '确定要删除该包裹记录吗？';
+        const handler = async () => {
+            try {
+                const resp = await fetch(`/api/backend/parcels/${id}`, { method: 'DELETE' });
+                const json = await resp.json();
+                if (!resp.ok) throw new Error(json.detail || '删除失败');
+                showToast('包裹已删除');
+                loadParcels();
+            } catch (e) {
+                showToast(e.message, 'error');
+            } finally {
+                closeModal('modal-confirm');
+                $('#confirm-ok').removeEventListener('click', handler);
+            }
+        };
+        $('#confirm-ok').addEventListener('click', handler, { once: true });
+    }
+
+    $('#form-parcel').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = $('#parcel-id').value;
+        const tracking_no = $('#parcel-tracking').value.trim();
+        const receiver_phone = $('#parcel-phone').value.trim();
+        const company = $('#parcel-company').value.trim();
+        const receiver_name = $('#parcel-name').value.trim();
+        const cabinet_number = $('#parcel-cabinet').value.trim();
+        const status = parseInt($('#parcel-status').value);
+
+        if (!tracking_no) { showToast('快递单号为必填', 'error'); return; }
+        if (!receiver_phone || !/^1[3-9]\d{9}$/.test(receiver_phone)) { showToast('手机号格式不正确', 'error'); return; }
+
+        if (!id) {
+            try {
+                const body = JSON.stringify({ tracking_no, receiver_phone, company, receiver_name, cabinet_number, status });
+                const resp = await fetch('/api/backend/parcels', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+                const json = await resp.json();
+                if (!resp.ok) throw new Error(json.detail || json.message || '入库失败');
+                showToast('包裹入库成功');
+                closeModal('modal-parcel');
+                loadParcels();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        } else {
+            try {
+                const body = JSON.stringify({ tracking_no, receiver_phone, company, receiver_name, cabinet_number, status });
+                const resp = await fetch(`/api/backend/parcels/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
+                const json = await resp.json();
+                if (!resp.ok) throw new Error(json.detail || json.message || '更新失败');
+                showToast('包裹信息已更新');
+                closeModal('modal-parcel');
+                loadParcels();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+    });
 
     $$('.filter-btn', $('#view-parcels')).forEach(btn => {
         btn.addEventListener('click', () => {

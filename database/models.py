@@ -157,9 +157,7 @@ class ParcelRepository:
             # 查询完整信息返回
             cursor.execute('SELECT * FROM parcels WHERE parcel_id = ?', (new_id,))
             row = cursor.fetchone()
-            result = dict(row)
-            result['extra_info'] = json.loads(result['extra_info']) if result['extra_info'] else {}
-            return result
+            return dict(row)
 
     @staticmethod
     def get_active_parcels_by_phone(phone: str):
@@ -180,7 +178,7 @@ class ParcelRepository:
                     "status": row['status'],
                     "in_time": row['in_time'],
                     "out_time": row['out_time'],
-                    "extra_info": json.loads(row['extra_info']) if row['extra_info'] else {}
+                    "extra_info": row['extra_info']
                 })
             return results
 
@@ -200,7 +198,7 @@ class ParcelRepository:
         with DatabaseManager.get_connection() as conn:
             cursor = conn.cursor()
             if new_status == 2:
-                cursor.execute('UPDATE parcels SET status = ?, out_time = CURRENT_TIMESTAMP WHERE parcel_id = ?', 
+                cursor.execute('UPDATE parcels SET status = ?, out_time = CURRENT_TIMESTAMP WHERE parcel_id = ? AND status = 1', 
                                (new_status, parcel_id))
             else:
                 cursor.execute('UPDATE parcels SET status = ? WHERE parcel_id = ?', 
@@ -213,6 +211,49 @@ class ParcelRepository:
         with DatabaseManager.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('DELETE FROM parcels WHERE parcel_id = ?', (parcel_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    @staticmethod
+    def get_parcel_by_id(parcel_id: int) -> dict:
+        with DatabaseManager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM parcels WHERE parcel_id = ?', (parcel_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return dict(row)
+
+    @staticmethod
+    def update_parcel(parcel_id: int, tracking_no: str = None, receiver_phone: str = None,
+                      cabinet_number: str = None, status: int = None,
+                      extra_info: dict = None) -> bool:
+        set_parts = []
+        params = []
+        if tracking_no is not None:
+            set_parts.append("tracking_no = ?")
+            params.append(tracking_no)
+        if receiver_phone is not None:
+            set_parts.append("receiver_phone = ?")
+            params.append(receiver_phone)
+        if cabinet_number is not None:
+            set_parts.append("cabinet_number = ?")
+            params.append(cabinet_number)
+        if status is not None:
+            set_parts.append("status = ?")
+            params.append(status)
+            if status == 2:
+                set_parts.append("out_time = CURRENT_TIMESTAMP")
+        if extra_info is not None:
+            set_parts.append("extra_info = ?")
+            params.append(json.dumps(extra_info))
+        if not set_parts:
+            return False
+        sql = f"UPDATE parcels SET {', '.join(set_parts)} WHERE parcel_id = ?"
+        params.append(parcel_id)
+        with DatabaseManager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql, params)
             conn.commit()
             return cursor.rowcount > 0
 

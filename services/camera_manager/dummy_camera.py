@@ -1,16 +1,18 @@
 import cv2
-import time
 import numpy as np
 from typing import Tuple, Optional
 from .base import BaseCamera
-from .constants import DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_FPS, DUMMY_IMAGE_PATH
+from .constants import DEFAULT_WIDTH, DEFAULT_HEIGHT, DUMMY_IMAGE_PATH
+
 
 class DummyCamera(BaseCamera):
     """
     无摄像头环境下的模拟器
     从指定的 pics 文件夹内加载静态图片作为视频帧输出，便于开发调试
     """
+
     def __init__(self):
+        super().__init__()
         self._running = False
         self._frame = None
 
@@ -41,8 +43,6 @@ class DummyCamera(BaseCamera):
         if not self._running:
             return False, None
 
-        # 模拟真实的摄像头帧率延迟，防止无意义的 CPU 空转
-        time.sleep(1.0 / DEFAULT_FPS)
-        
-        # 返回图像的副本，防止外部意外修改了缓存的原始帧
-        return True, self._frame.copy()
+        frame = self._frame.copy()
+        frame = self._blend_qr(frame)
+        return True, frame

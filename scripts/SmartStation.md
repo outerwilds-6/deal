@@ -31,6 +31,13 @@
 
 ## 四、演示说明
 1. 当前所有的硬件交互都采用弹窗来演示。services中的模块都有模拟数据。
+2. 每个 `constants.py` 中必须提供 `DEMO_*` 开关（如 `DEMO_OVERLAY_ENABLED`），生产切真人模式只需改 `constants.py`，不改业务代码。
+3. 演示模式下涉及摄像头叠加（如 QR 码）应使用 `cv2.addWeighted` alpha 混合，确保叠加内容始终可被视觉算法解码。
+
+## 五、数据层约定
+1. **`extra_info` 字段**：数据库存 JSON 字符串。`models.py` 中返回数据的仓库方法**统一不做** `json.loads`，由视图层 `build_*_out()` 负责解析。
+2. **视图层防御**：所有 `build_*_out()` 辅助函数在读取 `extra_info` 时必须加 `isinstance(extra, str)` 判断，兼容两种来源（某些仓库方法可能已解析为 dict）。
+3. **包裹状态语义**：`1=在库`，`2=已取件`，`3=异常`。`update_parcel` 写入 `status=2` 时自动带 `out_time=CURRENT_TIMESTAMP`。
 
 # 技术栈选型
 * **后端框架**：FastAPI (负责异步 API、视频流分发、WebSocket/SSE 状态推送)
