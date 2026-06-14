@@ -36,39 +36,17 @@
                     <div class="card-icon">&#x1F6AA;</div>
                     <h2>欢迎光临</h2>
                     <p>请正对摄像头后点击按钮进行人脸验证</p>
-                    <button id="btn-entry" class="btn btn-primary btn-large">刷脸进门</button>
+                    <button id="btn-auth" class="btn btn-primary btn-large">刷脸认证</button>
                 </div>
+                <button id="btn-pickup" class="btn btn-primary btn-large">扫码取件</button>
             </div>
 
-            <!-- ====== 状态：站内 (Inside) ====== -->
-            <div id="state-inside" class="state-view" style="display:none;">
-
-                <!-- 用户信息 -->
-                <div class="card user-info-card">
-                    <div class="user-row">
-                        <div class="user-avatar">&#x1F464;</div>
-                        <div class="user-detail">
-                            <span class="user-name" id="user-name">--</span>
-                            <span class="user-phone" id="user-phone">--</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 包裹列表 -->
-                <div class="card parcel-list-card">
-                    <div class="card-title">
-                        <span>&#x1F4E6;</span> 在库包裹
-                    </div>
-                    <div class="parcel-scroll">
-                        <div id="parcels-list"></div>
-                        <p id="no-parcels" style="display:none;">暂无在库包裹</p>
-                    </div>
-                </div>
-
-                <!-- 操作按钮 -->
-                <div class="action-row">
-                    <button id="btn-pickup" class="btn btn-primary btn-large">扫码取件</button>
-                    <button id="btn-exit" class="btn btn-outline btn-large">刷脸出门</button>
+            <!-- ====== 认证结果弹窗 ====== -->
+            <div id="auth-popup" class="state-view" style="display:none;">
+                <div class="card popup-card-wide" id="popup-card">
+                    <h3 id="popup-title"></h3>
+                    <div id="popup-body"></div>
+                    <div id="popup-footer"></div>
                 </div>
             </div>
         </div>

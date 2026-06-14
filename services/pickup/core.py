@@ -18,17 +18,17 @@ class PickupHandler:
     协调人脸再验证、QR 扫描、归属验证与数据库状态更新，并提供取件日志记录。
     """
 
-    async def handle_pickup(self, user_id: int) -> Tuple[bool, str, Optional[Dict]]:
+    async def handle_pickup(self) -> Tuple[bool, str, Optional[Dict]]:
         """
         执行一次取件确认流程：
-        1. 人脸再验证：确保当前操作者与登记的 user_id 一致
+        1. 人脸识别 + 身份推断（不再依赖前端传入 user_id）
         2. 获取用户待取包裹列表
         3. [演示模式] 生成 QR → 叠加到摄像头画面 → 真实解码
            [正式模式] 摄像头抓帧 → 直接解码
         4. 校验包裹归属 → 更新状态 → 记录日志
         """
 
-        # ---- 阶段 1：人脸再验证 ----
+        # ---- 阶段 1：人脸识别 + 身份推断 ----
         success, frame = app_state.camera.get_frame()
         if not success or frame is None:
             return False, "摄像头抓图失败", None
@@ -38,9 +38,9 @@ class PickupHandler:
         if embedding is None:
             return False, "未检测到人脸，请正对摄像头并重试", None
 
-        detected_user_id = app_state.search_face(embedding, threshold=SIMILARITY_THRESHOLD)
-        if detected_user_id != user_id:
-            return False, "人脸验证失败：请本人操作", None
+        user_id = app_state.search_face(embedding, threshold=SIMILARITY_THRESHOLD)
+        if not user_id:
+            return False, "人脸验证失败：未在系统中找到您的信息", None
 
         user = UserRepository.get_user_by_id(user_id)
         if not user or not user.get("is_active"):
@@ -125,4 +125,24 @@ class PickupHandler:
             "parcel_id": matched["parcel_id"],
             "tracking_no": tracking_no,
             "cabinet_number": matched["cabinet_number"]
+        }
+
+    @staticmethod
+    def check_exit_status(user_id: int) -> dict:
+        """
+        查询出口确认信息：应取/已取/未取包裹统计。
+        返回 {"expected_total": int, "picked_count": int, "active_parcels": list}
+        """
+        user = UserRepository.get_user_by_id(user_id)
+        if not user:
+            return {"expected_total": 0, "picked_count": 0, "active_parcels": []}
+
+        all_parcels = ParcelRepository.get_all_parcels_by_phone(user["phone"])
+        active = [p for p in all_parcels if p["status"] == 1]
+        picked = [p for p in all_parcels if p["status"] == 2]
+
+        return {
+            "expected_total": len(all_parcels),
+            "picked_count": len(picked),
+            "active_parcels": active
         }

@@ -160,6 +160,30 @@ class ParcelRepository:
             return dict(row)
 
     @staticmethod
+    def get_all_parcels_by_phone(phone: str):
+        with DatabaseManager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT parcel_id, tracking_no, cabinet_number, receiver_phone, status, in_time, out_time, extra_info
+                FROM parcels 
+                WHERE receiver_phone = ?
+                ORDER BY in_time DESC
+            ''', (phone,))
+            results = []
+            for row in cursor.fetchall():
+                results.append({
+                    "parcel_id": row['parcel_id'],
+                    "tracking_no": row['tracking_no'],
+                    "cabinet_number": row['cabinet_number'],
+                    "receiver_phone": row['receiver_phone'],
+                    "status": row['status'],
+                    "in_time": row['in_time'],
+                    "out_time": row['out_time'],
+                    "extra_info": row['extra_info']
+                })
+            return results
+
+    @staticmethod
     def get_active_parcels_by_phone(phone: str):
         with DatabaseManager.get_connection() as conn:
             cursor = conn.cursor()
@@ -271,6 +295,18 @@ class AccessLogRepository:
             ''', (user_id, action_type, snapshot_path, parcels_str))
             conn.commit()
             return cursor.lastrowid
+
+    @staticmethod
+    def get_last_action(user_id: int) -> str | None:
+        with DatabaseManager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT action_type FROM access_logs 
+                WHERE user_id = ? 
+                ORDER BY log_id DESC LIMIT 1
+            ''', (user_id,))
+            row = cursor.fetchone()
+            return row['action_type'] if row else None
 
     @staticmethod
     def get_recent_logs(limit: int = 50):

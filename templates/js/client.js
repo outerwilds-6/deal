@@ -10,21 +10,19 @@
 
     /* ============ DOM 引用 ============ */
     const $idlePanel   = $('#state-idle');
-    const $insidePanel = $('#state-inside');
+    const $authPopup   = $('#auth-popup');
+    const $popupTitle  = $('#popup-title');
+    const $popupBody   = $('#popup-body');
+    const $popupFooter = $('#popup-footer');
     const $notification = $('#notification');
-    const $btnEntry    = $('#btn-entry');
-    const $btnExit     = $('#btn-exit');
+    const $btnAuth     = $('#btn-auth');
     const $btnPickup   = $('#btn-pickup');
-    const $userName    = $('#user-name');
-    const $userPhone   = $('#user-phone');
-    const $parcelsList = $('#parcels-list');
-    const $noParcels   = $('#no-parcels');
 
-    /* ============ 状态 ============ */
-    let currentUser = null;        // { id, name, phone, is_active, created_at }
-    let activeParcels = [];       // [{ id, tracking_no, company, cabinet_number, status, ... }]
+    /* ============ 常量 ============ */
     let notifTimer = null;
     const NOTIF_DURATION = 3500;
+    let popupDismissTimer = null;
+    const POPUP_AUTO_DISMISS = 8000;
 
     /* ============ 通知系统 ============ */
     function showNotification(msg, type) {
@@ -52,126 +50,133 @@
         }
     }
 
-    /* ============ 页面状态切换 ============ */
-    function showState(state) {
-        if (state === 'idle') {
-            $idlePanel.style.display = 'flex';
-            $insidePanel.style.display = 'none';
-            currentUser = null;
-            activeParcels = [];
-        } else if (state === 'inside') {
-            $idlePanel.style.display = 'none';
-            $insidePanel.style.display = 'flex';
-        }
+    /* ============ 弹窗控制 ============ */
+    function showPopup() {
+        $idlePanel.style.display = 'none';
+        $authPopup.style.display = 'flex';
+    }
+
+    function dismissPopup() {
+        if (popupDismissTimer) clearTimeout(popupDismissTimer);
+        popupDismissTimer = null;
+        $authPopup.style.display = 'none';
+        $idlePanel.style.display = 'flex';
+    }
+
+    function startPopupAutoDismiss() {
+        if (popupDismissTimer) clearTimeout(popupDismissTimer);
+        popupDismissTimer = setTimeout(dismissPopup, POPUP_AUTO_DISMISS);
     }
 
     /* ============ 渲染 ============ */
-    function renderUser(user) {
-        $userName.textContent = user.name || '--';
-        $userPhone.textContent = user.phone || '--';
-    }
-
-    function renderParcels(parcels) {
+    function renderParcelList(parcels) {
         if (!parcels || parcels.length === 0) {
-            $parcelsList.innerHTML = '';
-            $noParcels.style.display = 'block';
-            return;
+            return '<p class="popup-empty">暂无在库包裹</p>';
         }
-        $noParcels.style.display = 'none';
-        $parcelsList.innerHTML = parcels.map(function(p) {
-            return '<div class="parcel-item" data-tracking="' + p.tracking_no + '">' +
-                '<div class="parcel-meta">' +
-                    '<span class="parcel-company">' + (p.company || '--') + '</span>' +
-                    '<span class="parcel-tracking">' + (p.tracking_no || '--') + '</span>' +
+        return '<div class="popup-parcels">' + parcels.map(function(p) {
+            return '<div class="pp-item">' +
+                '<div class="pp-meta">' +
+                    '<span class="pp-company">' + (p.company || '--') + '</span>' +
+                    '<span class="pp-tracking">' + (p.tracking_no || '--') + '</span>' +
                 '</div>' +
-                '<div class="parcel-cabinet">' +
-                    '<span class="cabinet-label">取件码</span>' +
-                    '<span class="cabinet-code">' + (p.cabinet_number || '--') + '</span>' +
+                '<div class="pp-cabinet">' +
+                    '<span class="pp-cabinet-label">柜号</span>' +
+                    '<span class="pp-cabinet-code">' + (p.cabinet_number || '--') + '</span>' +
                 '</div>' +
             '</div>';
-        }).join('');
+        }).join('') + '</div>';
     }
 
-    function markParcelAsPicked(trackingNo) {
-        var items = $$('.parcel-item', $parcelsList);
-        for (var i = 0; i < items.length; i++) {
-            if (items[i].dataset.tracking === trackingNo) {
-                items[i].classList.add('picked');
-                var cabinetEl = $('.cabinet-code', items[i]);
-                if (cabinetEl) cabinetEl.textContent = '已取件';
-                break;
-            }
-        }
-    }
-
-    /* ============ 进门 ============ */
-    async function handleEntry() {
-        setBtnLoading($btnEntry, true);
+    /* ============ 刷脸认证（入口/出口统一） ============ */
+    async function handleAuth() {
+        setBtnLoading($btnAuth, true);
         try {
-            var resp = await fetch('/api/client/access/entry', { method: 'POST' });
+            var resp = await fetch('/api/client/access/auth', { method: 'POST' });
             var json = await resp.json();
 
-            if (!resp.ok) {
-                showNotification(json.detail || json.message || '进门验证失败', 'error');
-                return;
-            }
-
-            if (json.code !== 200 || !json.data) {
-                showNotification(json.message || '验证失败', 'error');
+            if (!resp.ok || json.code !== 200 || !json.data) {
+                showNotification(json.message || '认证失败', 'error');
                 return;
             }
 
             var data = json.data;
-            currentUser = data.user;
-            activeParcels = data.active_parcels || [];
-
-            renderUser(currentUser);
-            renderParcels(activeParcels);
-            showState('inside');
-
-            if (activeParcels.length > 0) {
-                showNotification('欢迎 ' + currentUser.name + '，您有 ' + activeParcels.length + ' 个包裹待取', 'success');
-            } else {
-                showNotification('欢迎 ' + currentUser.name, 'success');
+            if (data.action === 'ENTRY') {
+                showEntryPopup(data);
+            } else if (data.action === 'EXIT') {
+                showExitPopup(data);
             }
         } catch (e) {
             showNotification('网络异常：' + e.message, 'error');
         } finally {
-            setBtnLoading($btnEntry, false);
+            setBtnLoading($btnAuth, false);
         }
     }
 
-    /* ============ 出门 ============ */
-    async function handleExit() {
-        setBtnLoading($btnExit, true);
+    function showEntryPopup(data) {
+        var user = data.user;
+        var parcels = data.active_parcels || [];
+
+        $popupTitle.textContent = '欢迎 ' + user.name;
+        $popupBody.innerHTML = renderParcelList(parcels);
+        $popupFooter.innerHTML = '<span class="popup-hint">点击任意位置关闭 · ' + (POPUP_AUTO_DISMISS / 1000) + 's 后自动关闭</span>';
+
+        showPopup();
+        startPopupAutoDismiss();
+    }
+
+    function showExitPopup(data) {
+        var user = data.user;
+        var expected = data.exit_expected_total || 0;
+        var picked = data.exit_picked_count || 0;
+        var missing = data.active_parcels || [];
+        var missingCount = missing.length;
+
+        $popupTitle.textContent = user.name + ' 请确认取件';
+
+        var bodyHtml = '<div class="exit-stats">' +
+            '<div class="exit-stat"><span class="es-label">应取</span><span class="es-value">' + expected + '</span></div>' +
+            '<div class="exit-stat"><span class="es-label">已取</span><span class="es-value" style="color:var(--success)">' + picked + '</span></div>' +
+            '<div class="exit-stat"><span class="es-label">未取</span><span class="es-value" style="color:' + (missingCount > 0 ? 'var(--warning)' : 'var(--success)') + '">' + missingCount + '</span></div>' +
+            '</div>';
+
+        if (missingCount > 0) {
+            bodyHtml += '<p class="exit-warning">您还有 ' + missingCount + ' 个包裹未取走</p>';
+            bodyHtml += renderParcelList(missing);
+        } else {
+            bodyHtml += '<p class="exit-ok">全部包裹已取走 ✓</p>';
+        }
+
+        $popupBody.innerHTML = bodyHtml;
+        $popupFooter.innerHTML = '<div class="popup-actions">' +
+            '<button id="btn-exit-confirm" class="btn btn-primary">确认离开</button>' +
+            '<button id="btn-exit-back" class="btn btn-outline">我再看看</button>' +
+            '</div>';
+
+        showPopup();
+
+        $('#btn-exit-confirm').addEventListener('click', handleExitConfirm);
+        $('#btn-exit-back').addEventListener('click', dismissPopup);
+    }
+
+    async function handleExitConfirm() {
+        var btn = $('#btn-exit-confirm');
+        if (!btn) return;
+        setBtnLoading(btn, true);
         try {
-            var resp = await fetch('/api/client/access/exit', { method: 'POST' });
+            var resp = await fetch('/api/client/access/exit_confirm', { method: 'POST' });
             var json = await resp.json();
 
-            if (!resp.ok) {
-                showNotification(json.detail || json.message || '出门验证失败', 'error');
+            if (!resp.ok || json.code !== 200) {
+                showNotification(json.message || '出门失败', 'error');
                 return;
             }
 
-            if (json.code !== 200 || !json.data) {
-                showNotification(json.message || '验证失败', 'error');
-                return;
-            }
-
-            var data = json.data;
-
-            if (data.has_forgotten_parcels) {
-                showNotification('您还有 ' + data.active_parcels.length + ' 个包裹未取，请取走后再离开', 'warning');
-                setBtnLoading($btnExit, false);
-                return;
-            }
-
-            showState('idle');
             showNotification('再见，欢迎下次光临', 'success');
+            dismissPopup();
         } catch (e) {
             showNotification('网络异常：' + e.message, 'error');
         } finally {
-            setBtnLoading($btnExit, false);
+            setBtnLoading(btn, false);
         }
     }
 
@@ -193,45 +198,26 @@
         $btnPickup.textContent = '取消取件';
         $btnPickup.classList.add('cancelling');
         showNotification('正在人脸验证，请正对摄像头...', 'warning');
-        doPickup('face', 0);
+        doPickup(0);
     }
 
-    async function doPickup(phase, retryCount) {
+    async function doPickup(retryCount) {
         if (pickupCancelFlag) return;
-        if (!currentUser || !currentUser.id) {
-            showNotification('用户信息丢失，请刷新页面', 'error');
-            cancelPickup();
-            return;
-        }
 
         try {
-            var resp = await fetch('/api/client/confirm_pickup?user_id=' + currentUser.id, { method: 'POST' });
+            var resp = await fetch('/api/client/confirm_pickup', { method: 'POST' });
             var json = await resp.json();
 
-            if (!resp.ok) {
-                showNotification(json.detail || json.message || '取件失败', 'error');
-                cancelPickup();
-                return;
-            }
-
-            if (json.code !== 200 || !json.data) {
+            if (!resp.ok || json.code !== 200 || !json.data) {
                 var msg = json.message || '';
 
                 if (msg.indexOf('未检测到人脸') !== -1) {
                     if (retryCount < MAX_PICKUP_RETRIES) {
                         showNotification('未检测到人脸，请正对摄像头... (' + (retryCount + 1) + '/' + MAX_PICKUP_RETRIES + ')', 'warning');
-                        pickupRetryTimer = setTimeout(function() {
-                            doPickup('face', retryCount + 1);
-                        }, 1500);
+                        pickupRetryTimer = setTimeout(function() { doPickup(retryCount + 1); }, 1500);
                         return;
                     }
                     showNotification('身份验证超时，请正对摄像头后重试', 'error');
-                    cancelPickup();
-                    return;
-                }
-
-                if (msg.indexOf('人脸验证失败') !== -1 || msg.indexOf('本人操作') !== -1) {
-                    showNotification(msg, 'error');
                     cancelPickup();
                     return;
                 }
@@ -243,9 +229,7 @@
                         } else {
                             showNotification('请将包裹二维码对准摄像头... (' + (retryCount + 1) + '/' + MAX_PICKUP_RETRIES + ')', 'warning');
                         }
-                        pickupRetryTimer = setTimeout(function() {
-                            doPickup('scan', retryCount + 1);
-                        }, 1500);
+                        pickupRetryTimer = setTimeout(function() { doPickup(retryCount + 1); }, 1500);
                         return;
                     }
                     showNotification('扫描超时，请确认二维码在画面中后重试', 'error');
@@ -259,17 +243,8 @@
             }
 
             var parcel = json.data;
-            markParcelAsPicked(parcel.tracking_no);
             showNotification('取件成功：' + parcel.tracking_no + '  柜号：' + parcel.cabinet_number, 'success');
             cancelPickup();
-
-            activeParcels = activeParcels.filter(function(p) {
-                return p.tracking_no !== parcel.tracking_no;
-            });
-
-            if (activeParcels.length === 0) {
-                renderParcels([]);
-            }
         } catch (e) {
             showNotification('网络异常：' + e.message, 'error');
             cancelPickup();
@@ -287,7 +262,6 @@
         ws = new WebSocket(protocol + '//' + window.location.host + '/ws/client');
 
         ws.onopen = function() {
-            console.log('[WS] client connected');
             if (wsReconnectTimer) {
                 clearTimeout(wsReconnectTimer);
                 wsReconnectTimer = null;
@@ -297,14 +271,14 @@
         ws.onmessage = function(event) {
             try {
                 var payload = JSON.parse(event.data);
-                console.log('[WS] received:', payload);
-
                 if (payload.type === 'HARDWARE_ACTION') {
-                    var action = payload.action;
                     var msg = (payload.data && payload.data.msg) || '';
+                    var action = payload.action;
 
-                    if (action === 'DOOR_OPEN') {
-                        showNotification(msg || '门已开启', 'success');
+                    if (action === 'CABINET_UNLOCK') {
+                        showNotification(msg || '柜门已解锁', 'success');
+                    } else if (action === 'CABINET_LOCK') {
+                        showNotification(msg || '柜门已锁闭', 'success');
                     } else if (action === 'FORGET_ALERT') {
                         showNotification(msg || '请注意：您有包裹未取', 'warning');
                     } else {
@@ -312,18 +286,15 @@
                     }
                 }
             } catch (e) {
-                console.error('[WS] parse error:', e);
+                // ignore parse errors
             }
         };
 
         ws.onclose = function() {
-            console.log('[WS] disconnected, reconnect in 3s');
             scheduleReconnect();
         };
 
-        ws.onerror = function() {
-            console.log('[WS] error');
-        };
+        ws.onerror = function() {};
     }
 
     function scheduleReconnect() {
@@ -335,8 +306,7 @@
     }
 
     /* ============ 事件绑定 ============ */
-    $btnEntry.addEventListener('click', handleEntry);
-    $btnExit.addEventListener('click', handleExit);
+    $btnAuth.addEventListener('click', handleAuth);
 
     $btnPickup.addEventListener('click', function() {
         if ($btnPickup.classList.contains('cancelling')) {
@@ -346,7 +316,10 @@
         }
     });
 
+    $authPopup.addEventListener('click', function(e) {
+        if (e.target === $authPopup) dismissPopup();
+    });
+
     /* ============ 初始化 ============ */
-    showState('idle');
     connectWebSocket();
 })();
