@@ -166,7 +166,7 @@ class ParcelRepository:
         with DatabaseManager.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT parcel_id, tracking_no, cabinet_number, extra_info
+                SELECT parcel_id, tracking_no, cabinet_number, receiver_phone, status, in_time, out_time, extra_info
                 FROM parcels 
                 WHERE receiver_phone = ? AND status = 1
             ''', (phone,))
@@ -176,6 +176,10 @@ class ParcelRepository:
                     "parcel_id": row['parcel_id'],
                     "tracking_no": row['tracking_no'],
                     "cabinet_number": row['cabinet_number'],
+                    "receiver_phone": row['receiver_phone'],
+                    "status": row['status'],
+                    "in_time": row['in_time'],
+                    "out_time": row['out_time'],
                     "extra_info": json.loads(row['extra_info']) if row['extra_info'] else {}
                 })
             return results
