@@ -5,6 +5,7 @@ backend_api.py - 后台管理端 API 路由
 所有接口均返回统一的 APIResponse 结构，数据模型严格遵循 database/schemas.py。
 """
 
+import asyncio
 import logging
 import json
 from datetime import datetime
@@ -161,6 +162,10 @@ async def delete_user(user_id: int):
         ok = UserRepository.hard_delete_user(user_id)
         if not ok:
             return APIResponse(code=404, message="用户不存在")
+        try:
+            app_state.remove_single_face_from_cache(user_id)
+        except Exception:
+            logger.exception("人脸缓存清理失败")
         return APIResponse(message="删除成功")
     except Exception as e:
         logger.exception("删除用户失败")

@@ -79,7 +79,7 @@ class PickupHandler:
                 if not app_state.scanner:
                     return False, "扫描器未就绪", None
 
-                _, data_list = app_state.scanner.scan(scan_frame)
+                _, data_list = app_state.scanner.scan(scan_frame, skip_demo=True)
             finally:
                 app_state.camera.set_overlay_qr(None)
 
