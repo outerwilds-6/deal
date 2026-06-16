@@ -297,14 +297,17 @@ class AccessLogRepository:
             return cursor.lastrowid
 
     @staticmethod
-    def get_last_action(user_id: int) -> str | None:
+    def get_last_action(user_id: int, action_types: list[str] | None = None) -> str | None:
+        query = 'SELECT action_type FROM access_logs WHERE user_id = ?'
+        params = [user_id]
+        if action_types:
+            placeholders = ','.join(['?'] * len(action_types))
+            query += f' AND action_type IN ({placeholders})'
+            params.extend(action_types)
+        query += ' ORDER BY log_id DESC LIMIT 1'
         with DatabaseManager.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT action_type FROM access_logs 
-                WHERE user_id = ? 
-                ORDER BY log_id DESC LIMIT 1
-            ''', (user_id,))
+            cursor.execute(query, params)
             row = cursor.fetchone()
             return row['action_type'] if row else None
 

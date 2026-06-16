@@ -63,7 +63,7 @@ async def client_auth():
         created_at=user["created_at"]
     )
 
-    last_action = AccessLogRepository.get_last_action(user_id)
+    last_action = AccessLogRepository.get_last_action(user_id, action_types=['IN', 'OUT'])
 
     if last_action == "IN":
         # ---- 出门模式 ----
