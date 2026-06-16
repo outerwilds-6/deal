@@ -63,5 +63,7 @@ class ScanResultData(BaseModel):
 class FaceAuthResult(BaseModel):
     user: UserOut
     active_parcels: List[ParcelOut] = Field(default_factory=list)
-    action: str = Field(..., description="IN(进门) 或 OUT(出门)")
+    action: str = Field(..., description="ENTRY(进门) 或 EXIT(出门)")
     has_forgotten_parcels: bool = Field(False, description="出门时判定是否有漏拿的在库包裹")
+    exit_expected_total: Optional[int] = Field(None, description="出口模式：应取包裹总数")
+    exit_picked_count: Optional[int] = Field(None, description="出口模式：已取包裹数")

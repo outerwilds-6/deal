@@ -2,47 +2,60 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SmartStation - 客户体验端</title>
+    <link rel="stylesheet" href="/static/css/client.css">
 </head>
 <body>
-    <h1>客户体验端 (Client)</h1>
-    <button onclick="mockEntry()">模拟刷脸进门</button>
-    <button onclick="mockExit()">模拟刷脸出门</button>
-    
-    <div style="margin-top: 20px;">
-        <p>人脸预览流占位区：</p>
-        <!-- <img src="/api/client/video_feed" width="640" height="480" style="border: 1px solid black;" /> -->
+    <!-- 整体布局 -->
+    <div id="container">
+
+        <!-- 左侧：摄像头 -->
+        <div id="camera-panel">
+            <div class="camera-header">
+                <span class="camera-dot"></span>
+                实时画面
+            </div>
+            <div class="camera-body">
+                <img id="video-feed" src="/api/client/video_feed" alt="Camera Feed">
+            </div>
+        </div>
+
+        <!-- 右侧：交互区域 -->
+        <div id="interact-panel">
+
+            <!-- 标题 -->
+            <div id="brand">
+                <h1>SmartStation</h1>
+                <p>智能无人驿站 · 客户体验端</p>
+            </div>
+
+            <!-- ====== 状态：待机 (Idle) ====== -->
+            <div id="state-idle" class="state-view">
+                <div class="card">
+                    <div class="card-icon">&#x1F6AA;</div>
+                    <h2>欢迎光临</h2>
+                    <p>请正对摄像头后点击按钮进行人脸验证</p>
+                    <button id="btn-auth" class="btn btn-primary btn-large">刷脸认证</button>
+                </div>
+                <button id="btn-pickup" class="btn btn-primary btn-large">扫码取件</button>
+            </div>
+
+            <!-- ====== 认证结果弹窗 ====== -->
+            <div id="auth-popup" class="state-view" style="display:none;">
+                <div class="card popup-card-wide" id="popup-card">
+                    <h3 id="popup-title"></h3>
+                    <div id="popup-body"></div>
+                    <div id="popup-footer"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ====== 通知横幅 ====== -->
+        <div id="notification" class="notification"></div>
+
     </div>
 
-    <script>
-        const ws = new WebSocket(`ws://${window.location.host}/ws/client`);
-        ws.onopen = () => console.log("✅ 客户端 WebSocket 已连接");
-        ws.onmessage = (event) => {
-            const payload = JSON.parse(event.data);
-            console.log("📥 收到硬件指令:", payload);
-
-            // 严格按照 F12 中的结构读取数据：
-            // 读取 action (例如 "DOOR_OPEN")
-            const actionType = payload.action; 
-            
-            // 读取 data 下面的 msg
-            // 使用 ?. 防止 data 为空时报错
-            const message = payload.data?.msg || "无消息内容";
-
-            alert(`【硬件触发】类型: ${actionType}\n消息: ${message}`);
-        };
-
-        function mockEntry() {
-            fetch("/api/client/access/entry", { method: "POST" })
-                .then(res => res.json())
-                .then(data => console.log("进门返回:", data));
-        }
-
-        function mockExit() {
-            fetch("/api/client/access/exit", { method: "POST" })
-                .then(res => res.json())
-                .then(data => console.log("出门返回:", data));
-        }
-    </script>
+    <script src="/static/js/client.js"></script>
 </body>
 </html>

@@ -115,6 +115,17 @@ class GlobalStateManager:
             self.face_matrix = np.vstack((self.face_matrix, embedding))
             self.user_ids.append(user_id)
 
+    def remove_single_face_from_cache(self, user_id: int):
+        """ 管理端删除用户时，同步清理内存矩阵中的对应特征 """
+        if self.face_matrix is None or not self.user_ids:
+            return
+        try:
+            idx = self.user_ids.index(user_id)
+            self.face_matrix = np.delete(self.face_matrix, idx, axis=0)
+            self.user_ids.pop(idx)
+        except ValueError:
+            pass
+
     # ==========================
     # 硬件驱动逻辑 (串口控制 / 弹窗模拟)
     # ==========================

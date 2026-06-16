@@ -1,0 +1,626 @@
+/* ============ 基础变量 ============ */
+:root {
+    --bg: #0f172a;
+    --bg-card: #1e293b;
+    --bg-card-hover: #273548;
+    --primary: #3b82f6;
+    --primary-hover: #2563eb;
+    --danger: #ef4444;
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --text: #f1f5f9;
+    --text-muted: #94a3b8;
+    --border: rgba(148, 163, 184, 0.12);
+    --radius: 10px;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* ============ 主容器 ============ */
+#container {
+    display: flex;
+    height: 100vh;
+    gap: 0;
+}
+
+/* ============ 左侧：摄像头面板 ============ */
+#camera-panel {
+    width: 540px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: #000;
+    border-right: 2px solid var(--border);
+}
+
+.camera-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px;
+    background: var(--bg-card);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.camera-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--success);
+    animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.camera-body {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    overflow: hidden;
+}
+
+#video-feed {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+}
+
+/* ============ 右侧：交互面板 ============ */
+#interact-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    overflow-y: auto;
+    gap: 24px;
+    position: relative;
+}
+
+/* ============ 品牌标题 ============ */
+#brand {
+    text-align: center;
+    margin-bottom: 8px;
+}
+
+#brand h1 {
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    background: linear-gradient(135deg, var(--primary), #8b5cf6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+#brand p {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    letter-spacing: 1px;
+}
+
+/* ============ 状态视图容器 ============ */
+.state-view {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    width: 100%;
+    max-width: 480px;
+    animation: fadeIn 0.35s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ============ 卡片通用 ============ */
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 36px 40px;
+    width: 100%;
+    text-align: center;
+}
+
+/* 闲置页卡片 */
+.card-icon {
+    font-size: 52px;
+    margin-bottom: 16px;
+}
+
+.card h2 {
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.card p {
+    font-size: 14px;
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin-bottom: 24px;
+}
+
+/* ============ 用户信息卡片 ============ */
+.user-info-card {
+    padding: 20px 28px;
+}
+
+.user-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.user-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.user-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    text-align: left;
+}
+
+.user-name {
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.user-phone {
+    font-size: 13px;
+    color: var(--text-muted);
+    font-family: monospace;
+}
+
+/* ============ 包裹列表卡片 ============ */
+.parcel-list-card {
+    padding: 0;
+    text-align: left;
+    max-height: 340px;
+    display: flex;
+    flex-direction: column;
+}
+
+.card-title {
+    padding: 16px 24px;
+    font-size: 15px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    letter-spacing: 1px;
+    color: var(--text);
+}
+
+.parcel-scroll {
+    overflow-y: auto;
+    flex: 1;
+    padding: 0 24px;
+}
+
+.parcel-scroll::-webkit-scrollbar {
+    width: 4px;
+}
+
+.parcel-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.parcel-scroll::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.2);
+    border-radius: 2px;
+}
+
+.parcel-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+    transition: opacity 0.3s ease;
+}
+
+.parcel-item:last-child {
+    border-bottom: none;
+}
+
+.parcel-item.picked {
+    opacity: 0.35;
+}
+
+.parcel-item.picked .parcel-meta {
+    text-decoration: line-through;
+}
+
+.parcel-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.parcel-company {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.parcel-tracking {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: monospace;
+}
+
+.parcel-cabinet {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+.cabinet-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.cabinet-code {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--success);
+    letter-spacing: 3px;
+    font-family: monospace;
+}
+
+.picked .cabinet-code {
+    color: var(--text-muted);
+}
+
+#no-parcels {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 32px 0;
+    font-size: 14px;
+}
+
+/* ============ 按钮 ============ */
+.btn {
+    display: inline-block;
+    padding: 12px 28px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    transition: all 0.2s;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background: var(--primary);
+    color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: var(--primary-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.35);
+}
+
+.btn-outline {
+    background: transparent;
+    color: var(--text);
+    border: 1.5px solid rgba(148, 163, 184, 0.3);
+}
+
+.btn-outline:hover:not(:disabled) {
+    background: rgba(148, 163, 184, 0.08);
+    border-color: rgba(148, 163, 184, 0.5);
+}
+
+.btn-large {
+    padding: 16px 44px;
+    font-size: 18px;
+    border-radius: 10px;
+}
+
+.btn-loading {
+    position: relative;
+    color: transparent !important;
+    pointer-events: none;
+}
+
+.btn-loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 22px;
+    height: 22px;
+    margin: -11px 0 0 -11px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}
+
+/* ============ 操作按钮行 ============ */
+.action-row {
+    display: flex;
+    gap: 16px;
+    width: 100%;
+}
+
+.action-row .btn {
+    flex: 1;
+}
+
+/* ============ 取件按钮态 ============ */
+#btn-pickup.cancelling {
+    background: var(--danger);
+    color: #fff;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ============ 通知横幅 ============ */
+#notification {
+    position: fixed;
+    top: -80px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 14px 36px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    z-index: 300;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    transition: top 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    max-width: 520px;
+    text-align: center;
+    line-height: 1.4;
+}
+
+#notification.show {
+    top: 28px;
+}
+
+#notification.success {
+    background: var(--success);
+}
+
+#notification.error {
+    background: var(--danger);
+}
+
+#notification.warning {
+    background: var(--warning);
+}
+
+/* ============ 认证弹窗 ============ */
+#auth-popup {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(15, 23, 42, 0.88);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    cursor: pointer;
+}
+
+#auth-popup .popup-card-wide {
+    cursor: default;
+}
+
+.popup-card-wide {
+    padding: 32px 36px;
+    text-align: left;
+}
+
+#popup-title {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+#popup-body {
+    margin-bottom: 20px;
+}
+
+#popup-footer {
+    text-align: center;
+}
+
+.popup-empty {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 24px 0;
+    font-size: 14px;
+}
+
+.popup-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* 弹窗内包裹列表 */
+.popup-parcels {
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+.popup-parcels::-webkit-scrollbar {
+    width: 4px;
+}
+
+.popup-parcels::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.popup-parcels::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.2);
+    border-radius: 2px;
+}
+
+.pp-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.pp-item:last-child {
+    border-bottom: none;
+}
+
+.pp-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.pp-company {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.pp-tracking {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: monospace;
+}
+
+.pp-cabinet {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+.pp-cabinet-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.pp-cabinet-code {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--success);
+    letter-spacing: 3px;
+    font-family: monospace;
+}
+
+/* 出口确认 */
+.exit-stats {
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    margin-bottom: 16px;
+}
+
+.exit-stat {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.es-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.es-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.exit-warning {
+    text-align: center;
+    color: var(--warning);
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.exit-ok {
+    text-align: center;
+    color: var(--success);
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.popup-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.popup-actions .btn {
+    min-width: 120px;
+}
+
+/* 待机面板中的取件按钮 */
+#state-idle > .btn {
+    width: 100%;
+    max-width: 480px;
+}

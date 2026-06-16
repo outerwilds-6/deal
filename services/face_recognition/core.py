@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+import threading
 from typing import Optional, List
 from insightface.app import FaceAnalysis
 from numpy.linalg import norm
@@ -21,13 +22,17 @@ class FaceRecognizer:
         # ctx_id=0 表示使用第一块 GPU (即使 fallback 到 CPU 也不影响)
         self.app.prepare(ctx_id=0, det_size=DET_SIZE)
 
+        # 推理锁：InsightFace 内部非完全线程安全，串行化所有 extract_feature 调用
+        self._inference_lock = threading.Lock()
+
     def extract_feature(self, frame: np.ndarray) -> Optional[np.ndarray]:
         """
         从图像中提取最大人脸的特征向量
         :param frame: BGR 格式的图像 (OpenCV 默认格式)
         :return: 512 维的 float32 特征向量，若未检测到人脸则返回 None
         """
-        faces = self.app.get(frame)
+        with self._inference_lock:
+            faces = self.app.get(frame)
         if not faces:
             return None
         

@@ -5,6 +5,7 @@ backend_api.py - 后台管理端 API 路由
 所有接口均返回统一的 APIResponse 结构，数据模型严格遵循 database/schemas.py。
 """
 
+import asyncio
 import logging
 import json
 from datetime import datetime
@@ -66,7 +67,8 @@ async def register_user(
         return APIResponse(code=400, message="图片解码失败，请上传有效的图片文件")
 
     # 2. 提取人脸特征
-    embedding = app_state.face_recognizer.extract_feature(frame)
+    embedding = await asyncio.get_event_loop().run_in_executor(
+        None, app_state.face_recognizer.extract_feature, frame)
     if embedding is None:
         return APIResponse(code=400, message="未检测到人脸，请上传包含清晰正面照的图片")
 
@@ -160,6 +162,10 @@ async def delete_user(user_id: int):
         ok = UserRepository.hard_delete_user(user_id)
         if not ok:
             return APIResponse(code=404, message="用户不存在")
+        try:
+            app_state.remove_single_face_from_cache(user_id)
+        except Exception:
+            logger.exception("人脸缓存清理失败")
         return APIResponse(message="删除成功")
     except Exception as e:
         logger.exception("删除用户失败")
@@ -210,6 +216,108 @@ async def get_parcels(
         ))
     print(rdata)
     return APIResponse(data=rdata)
+
+
+class ParcelCreateRequest(BaseModel):
+    tracking_no: str = Field(..., min_length=1, max_length=100)
+    receiver_phone: str = Field(..., pattern=r"^1[3-9]\d{9}$")
+    cabinet_number: Optional[str] = Field("", max_length=20)
+    company: Optional[str] = Field("未知", max_length=50)
+    receiver_name: Optional[str] = Field("", max_length=50)
+    status: Optional[int] = Field(1, ge=1, le=3)
+
+
+class ParcelUpdateRequest(BaseModel):
+    tracking_no: Optional[str] = Field(None, min_length=1, max_length=100)
+    receiver_phone: Optional[str] = Field(None, pattern=r"^1[3-9]\d{9}$")
+    cabinet_number: Optional[str] = Field(None, max_length=20)
+    company: Optional[str] = Field(None, max_length=50)
+    receiver_name: Optional[str] = Field(None, max_length=50)
+    status: Optional[int] = Field(None, ge=1, le=3)
+
+
+@router.post("/parcels", response_model=APIResponse)
+async def create_parcel(payload: ParcelCreateRequest):
+    try:
+        parcel_dict = ParcelRepository.add_parcel(
+            tracking_no=payload.tracking_no,
+            cabinet_number=payload.cabinet_number or "",
+            receiver_phone=payload.receiver_phone,
+            status=payload.status,
+            extra_info={"company": payload.company, "receiver_name": payload.receiver_name}
+        )
+    except RuntimeError as e:
+        return APIResponse(code=400, message=f"入库失败：{str(e)}")
+    except Exception as e:
+        logger.exception("包裹入库异常")
+        return APIResponse(code=500, message=f"系统异常：{str(e)}")
+
+    return APIResponse(message="包裹入库成功", data={
+        "parcel_id": parcel_dict["parcel_id"],
+        "tracking_no": parcel_dict["tracking_no"],
+        "cabinet_number": parcel_dict["cabinet_number"],
+    })
+
+
+@router.get("/parcels/{parcel_id}", response_model=APIResponse)
+async def get_parcel(parcel_id: int):
+    p = ParcelRepository.get_parcel_by_id(parcel_id)
+    if not p:
+        return APIResponse(code=404, message="包裹不存在")
+    extra = p.get("extra_info") or {}
+    if isinstance(extra, str):
+        extra = json.loads(extra)
+    return APIResponse(data=ParcelOut(
+        id=p["parcel_id"],
+        tracking_no=p["tracking_no"],
+        company=extra.get("company", "未知"),
+        receiver_name=extra.get("receiver_name", "未知"),
+        receiver_phone=p["receiver_phone"],
+        cabinet_number=p.get("cabinet_number", ""),
+        status=p["status"],
+        in_time=p["in_time"],
+        out_time=p.get("out_time")
+    ))
+
+
+@router.put("/parcels/{parcel_id}", response_model=APIResponse)
+async def update_parcel(parcel_id: int, payload: ParcelUpdateRequest):
+    existing = ParcelRepository.get_parcel_by_id(parcel_id)
+    if not existing:
+        return APIResponse(code=404, message="包裹不存在")
+
+    extra_info = existing.get("extra_info") or {}
+    if isinstance(extra_info, str):
+        extra_info = json.loads(extra_info)
+    if payload.company is not None:
+        extra_info["company"] = payload.company
+    if payload.receiver_name is not None:
+        extra_info["receiver_name"] = payload.receiver_name
+
+    try:
+        ok = ParcelRepository.update_parcel(
+            parcel_id=parcel_id,
+            tracking_no=payload.tracking_no,
+            receiver_phone=payload.receiver_phone,
+            cabinet_number=payload.cabinet_number,
+            status=payload.status,
+            extra_info=extra_info if (payload.company is not None or payload.receiver_name is not None) else None
+        )
+    except Exception as e:
+        logger.exception("更新包裹失败")
+        return APIResponse(code=500, message=f"更新失败：{str(e)}")
+
+    if not ok:
+        return APIResponse(code=400, message="未做任何修改")
+    return APIResponse(message="包裹信息已更新")
+
+
+@router.delete("/parcels/{parcel_id}", response_model=APIResponse)
+async def delete_parcel(parcel_id: int):
+    ok = ParcelRepository.delete_parcel(parcel_id)
+    if not ok:
+        return APIResponse(code=404, message="包裹不存在或已删除")
+    return APIResponse(message="包裹已删除")
 
 
 # ========================

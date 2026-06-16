@@ -3,7 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
@@ -87,6 +87,10 @@ templates = Jinja2Templates(directory="templates")
 # ==========================
 # 页面路由 (渲染纯 HTML)
 # ==========================
+@app.get("/", summary="根路径重定向至客户体验端")
+async def root():
+    return RedirectResponse(url="/client")
+
 @app.get("/backend", response_class=HTMLResponse, summary="后台管理端页面")
 async def backend_page(request: Request):
     # 修改这里：使用显式的关键字参数 request= 和 name=
